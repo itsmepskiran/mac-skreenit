@@ -46,8 +46,8 @@ razorpay==1.4.2
 # Whisper (OpenAI) - Speech recognition
 git+https://github.com/openai/whisper.git
 
-# GPU-accelerated ONNX Runtime - Updated to latest stable version
-onnxruntime-gpu==1.18.1
+# GPU-accelerated ONNX Runtime - Latest stable version
+onnxruntime-gpu==1.27.0
 protobuf>=3.20.0  # Required by ONNX Runtime
 
 # MediaPipe - Face detection, pose estimation

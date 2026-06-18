@@ -46,8 +46,8 @@ razorpay==1.4.2
 # Whisper (OpenAI) - Speech recognition
 git+https://github.com/openai/whisper.git
 
-# CPU-based ONNX Runtime (Mac compatible) - Updated to latest stable
-onnxruntime==1.18.1
+# CPU-based ONNX Runtime (Mac compatible) - Latest stable
+onnxruntime==1.27.0
 protobuf>=3.20.0  # Required by ONNX Runtime
 
 # MediaPipe - Face detection, pose estimation (works on CPU on Mac)
