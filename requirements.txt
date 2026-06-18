@@ -91,7 +91,7 @@ git+https://github.com/deepinsight/insightface.git#subdirectory=python-package
 textblob==0.18.0.post0
 nltk==3.8.1
 textstat==0.7.3
-scipy==1.12.0
+scipy>=1.14.0  # Updated: 1.12.0 has build issues on Mac ARM64, 1.14.0+ has wheels
 soundfile==0.11.0
 eng-to-ipa==0.0.2
 numpy==1.26.4  # Pinned for compatibility with all packages
