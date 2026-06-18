@@ -1,0 +1,168 @@
+# =============================================================================
+# SKREENIT LOCAL SERVER REQUIREMENTS
+# Optimized for: Intel Xeon E-2276M + 64GB RAM + NVIDIA Quadro T2000 (4GB)
+# =============================================================================
+
+# =============================================================================
+# PYTORCH WITH GPU SUPPORT (CUDA 12.1)
+# For Quadro T2000 with 4GB VRAM (CUDA 12.8 installed, using 12.1 wheels)
+# =============================================================================
+--extra-index-url https://download.pytorch.org/whl/cu121
+torch==2.2.0+cu121
+torchvision==0.17.0+cu121
+torchaudio==2.2.0+cu121
+
+# =============================================================================
+# CORE BACKEND
+# =============================================================================
+fastapi==0.115.0
+starlette==0.41.3
+uvicorn[standard]==0.30.0
+httpx==0.25.2
+python-dotenv==1.0.1
+pydantic==2.9.0
+pydantic-settings==2.5.0
+python-multipart==0.0.9
+python-jose[cryptography]==3.3.0
+bcrypt==4.2.0
+sqlalchemy==2.0.35
+pymysql==1.1.0
+jinja2==3.1.4
+email-validator==2.2.0
+PyJWT==2.9.0
+websockets==12.0
+
+# =============================================================================
+# CLOUD & EMAIL
+# =============================================================================
+boto3==1.35.0
+resend==0.8.0
+razorpay==1.4.2
+
+# =============================================================================
+# VIDEO PROCESSING & ML STACK (GPU Accelerated)
+# =============================================================================
+# Whisper (OpenAI) - Speech recognition
+git+https://github.com/openai/whisper.git
+
+# GPU-accelerated ONNX Runtime
+onnxruntime-gpu==1.17.1
+
+# MediaPipe - Face detection, pose estimation
+mediapipe==0.10.14
+
+# OpenCV with GPU support (for Quadro)
+opencv-python==4.10.0.84
+
+# Pillow for image processing
+pillow==10.4.0
+
+# FFmpeg wrapper for Python
+ffmpeg-python==0.2.0
+
+# MoviePy - Video editing/processing
+moviepy==1.0.3
+
+# FER - Facial Expression Recognition (uses GPU)
+fer==22.5.1
+
+# InsightFace - Advanced face analysis
+git+https://github.com/deepinsight/insightface.git#subdirectory=python-package
+
+# =============================================================================
+# NLP & TEXT PROCESSING
+# =============================================================================
+textblob==0.18.0.post0
+nltk==3.8.1
+textstat==0.7.3
+scipy==1.12.0
+soundfile==0.11.0
+eng-to-ipa==0.0.2
+numpy==1.26.4  # Pinned for compatibility
+sentence-transformers==3.0.1  # For semantic similarity
+transformers==4.44.0  # Hugging Face transformers
+accelerate==0.33.0  # For model acceleration
+
+# =============================================================================
+# AI / LLM INTEGRATION (for interview question generation)
+# =============================================================================
+ollama==0.1.7  # Ollama Python client for local LLM
+langchain==0.1.13  # LangChain for LLM orchestration
+langchain-community==0.0.29  # Community integrations
+langchain-core==0.1.33  # Core LangChain components
+
+# =============================================================================
+# INDIAN LANGUAGE SUPPORT (Vernacular Language Processing)
+# =============================================================================
+# Whisper - Already included above, supports 99 languages including Indian languages
+# Additional Indian language specific libraries:
+indic-nlp-library==0.92  # Text processing for Indian languages
+deep-translator==1.0.4  # Primary translation library (Google Translate, etc.)
+SpeechRecognition==3.10.0  # Additional speech recognition
+pydub==0.25.1  # Audio processing for language detection
+langdetect==1.0.9  # Language detection
+indic-transliteration==2.3.82  # Transliteration support
+# Note: Bhashini API access via HTTP requests (no official pip package)
+language-tool-python==2.7.1  # Grammar checking
+
+# =============================================================================
+# DOCUMENT PROCESSING
+# =============================================================================
+PyMuPDF==1.24.9
+python-docx==1.1.2
+reportlab==4.2.2
+pdf2image==1.17.0
+pdfplumber==0.11.0
+resumepy==1.0.0
+markitdown==0.0.1a2  # Microsoft's MarkItDown for document to Markdown conversion
+beautifulsoup4==4.12.3  # HTML parsing for resume template conversion
+
+# =============================================================================
+# SYSTEM UTILITIES
+# =============================================================================
+psutil==6.0.0  # System monitoring
+GPUtil==1.4.0  # GPU monitoring
+pynvml==11.5.0  # NVIDIA management library
+
+# =============================================================================
+# PERFORMANCE OPTIMIZATION (for 64GB RAM)
+# =============================================================================
+# Ray - Distributed computing (can utilize all CPU cores)
+ray==2.35.0
+
+# Numba - JIT compilation for Python
+numba==0.60.0
+
+# Dask - Parallel computing
+# dask==2024.3.1
+# distributed==2024.3.1
+
+# =============================================================================
+# MONITORING & LOGGING
+# =============================================================================
+structlog==24.4.0
+prometheus-client==0.21.0
+
+# =============================================================================
+# NOTES FOR DEPLOYMENT
+# =============================================================================
+# 1. Install CUDA 12.8 toolkit on your machine (PyTorch uses cu121 which is compatible)
+# 2. Verify GPU: python -c "import torch; print(torch.cuda.is_available())"
+# 3. Ollama should be installed separately from https://ollama.com
+# 4. This configuration can process multiple videos simultaneously
+#
+# INDIAN LANGUAGE SUPPORT SETUP:
+# 5. Download Ollama and pull language model:
+#    ollama pull llama3.2
+# 6. For better transcription quality, consider using Whisper 'small' or 'medium' model
+#    by changing: whisper.load_model("small") in indian_language_service.py
+# 7. Bhashini API requires API key from https://bhashini.gov.in (optional fallback)
+# 8. All 22 Indian languages supported via Whisper + auto-detection
+# 9. For fresher candidates, system analyzes native language communication skills
+#
+# SYSTEM REQUIREMENTS (Optimized for 64GB RAM):
+# - Intel Xeon E-2276M or equivalent
+# - 64GB RAM (for parallel video processing with Whisper)
+# - NVIDIA Quadro T2000 with 4GB VRAM
+# - CUDA 12.8 compatible drivers
+# =============================================================================
