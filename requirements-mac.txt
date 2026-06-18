@@ -1,0 +1,196 @@
+# =============================================================================
+# SKREENIT LOCAL SERVER REQUIREMENTS - MAC VERSION
+# Optimized for: Mac (Intel & Apple Silicon/M-series)
+# Note: Uses CPU-based processing instead of GPU
+# =============================================================================
+
+# =============================================================================
+# PYTORCH WITHOUT GPU (CPU/Metal Accelerated)
+# Mac will auto-detect Metal acceleration on Apple Silicon
+# =============================================================================
+torch==2.2.0
+torchvision==0.17.0
+torchaudio==2.2.0
+
+# =============================================================================
+# CORE BACKEND
+# =============================================================================
+fastapi==0.115.0
+starlette==0.41.3
+uvicorn[standard]==0.30.0
+httpx==0.25.2
+python-dotenv==1.0.1
+pydantic==2.9.0
+pydantic-settings==2.5.0
+python-multipart==0.0.9
+python-jose[cryptography]==3.3.0
+bcrypt==4.2.0
+sqlalchemy==2.0.35
+pymysql==1.1.0
+jinja2==3.1.4
+email-validator==2.2.0
+PyJWT==2.9.0
+websockets==12.0
+
+# =============================================================================
+# CLOUD & EMAIL
+# =============================================================================
+boto3==1.35.0
+resend==0.8.0
+razorpay==1.4.2
+
+# =============================================================================
+# VIDEO PROCESSING & ML STACK (CPU Accelerated)
+# =============================================================================
+# Whisper (OpenAI) - Speech recognition
+git+https://github.com/openai/whisper.git
+
+# CPU-based ONNX Runtime (Mac compatible)
+onnxruntime==1.17.1
+
+# MediaPipe - Face detection, pose estimation (works on CPU on Mac)
+mediapipe==0.10.14
+
+# OpenCV - CPU version (headless not needed for development)
+opencv-python==4.10.0.84
+
+# Pillow for image processing
+pillow==10.4.0
+
+# FFmpeg wrapper for Python
+ffmpeg-python==0.2.0
+
+# MoviePy - Video editing/processing
+moviepy==1.0.3
+
+# FER - Facial Expression Recognition (works on CPU)
+fer==22.5.1
+
+# InsightFace - Advanced face analysis
+git+https://github.com/deepinsight/insightface.git#subdirectory=python-package
+
+# =============================================================================
+# NLP & TEXT PROCESSING
+# =============================================================================
+textblob==0.18.0.post0
+nltk==3.8.1
+textstat==0.7.3
+scipy==1.12.0
+soundfile==0.11.0
+eng-to-ipa==0.0.2
+numpy==1.26.4  # Pinned for compatibility
+sentence-transformers==3.0.1  # For semantic similarity
+transformers==4.44.0  # Hugging Face transformers
+accelerate==0.33.0  # For model acceleration
+
+# =============================================================================
+# AI / LLM INTEGRATION (for interview question generation)
+# =============================================================================
+ollama==0.1.7  # Ollama Python client for local LLM
+langchain==0.1.13  # LangChain for LLM orchestration
+langchain-community==0.0.29  # Community integrations
+langchain-core==0.1.33  # Core LangChain components
+
+# =============================================================================
+# INDIAN LANGUAGE SUPPORT (Vernacular Language Processing)
+# =============================================================================
+# Whisper - Already included above, supports 99 languages including Indian languages
+# Additional Indian language specific libraries:
+indic-nlp-library==0.92  # Text processing for Indian languages
+deep-translator==1.0.4  # Primary translation library (Google Translate, etc.)
+SpeechRecognition==3.10.0  # Additional speech recognition
+pydub==0.25.1  # Audio processing for language detection
+langdetect==1.0.9  # Language detection
+indic-transliteration==2.3.82  # Transliteration support
+# Note: Bhashini API access via HTTP requests (no official pip package)
+language-tool-python==2.7.1  # Grammar checking
+
+# =============================================================================
+# DOCUMENT PROCESSING
+# =============================================================================
+PyMuPDF==1.24.9
+python-docx==1.1.2
+reportlab==4.2.2
+pdf2image==1.17.0
+pdfplumber==0.11.0
+resumepy==1.0.0
+markitdown==0.0.1a2  # Microsoft's MarkItDown for document to Markdown conversion
+beautifulsoup4==4.12.3  # HTML parsing for resume template conversion
+
+# =============================================================================
+# SYSTEM UTILITIES (Mac compatible versions)
+# =============================================================================
+psutil==6.0.0  # System monitoring
+
+# =============================================================================
+# PERFORMANCE OPTIMIZATION (for Mac with multiple cores)
+# =============================================================================
+# Ray - Distributed computing (can utilize all CPU cores)
+ray==2.35.0
+
+# Numba - JIT compilation for Python
+numba==0.60.0
+
+# =============================================================================
+# MONITORING & LOGGING
+# =============================================================================
+structlog==24.4.0
+prometheus-client==0.21.0
+
+# =============================================================================
+# MAC-SPECIFIC SETUP NOTES
+# =============================================================================
+# 1. PYTHON VERSION: Use Python 3.10+ (preferably 3.11 or 3.12)
+#    - Recommended: Use pyenv to manage Python versions
+#    - For M-series Macs: Ensure Python is ARM-native, not x86 via Rosetta
+#
+# 2. HOMEBREW DEPENDENCIES:
+#    brew install ffmpeg
+#    brew install libsndfile
+#    brew install libffi
+#
+# 3. XCODE COMMAND LINE TOOLS:
+#    xcode-select --install
+#    (Required for some binary package compilation)
+#
+# 4. INSTALLATION STEPS:
+#    python -m venv venv
+#    source venv/bin/activate
+#    pip install --upgrade pip setuptools wheel
+#    pip install -r requirements-mac.txt
+#
+# 5. VERIFY INSTALLATION:
+#    python -c "import torch; print(f'PyTorch: {torch.__version__}')"
+#    python -c "import cv2; print(f'OpenCV: {cv2.__version__}')"
+#    python -c "import onnxruntime; print(f'ONNX Runtime: {onnxruntime.__version__}')"
+#
+# 6. PERFORMANCE NOTES:
+#    - CPU processing will be slower than GPU (expect 3-5x slower for video analysis)
+#    - Apple Silicon Macs (M1/M2/M3): PyTorch automatically uses Metal acceleration
+#    - For better performance on Intel Macs: Consider using GPU via external NVIDIA GPU
+#    - System will process videos sequentially on Mac (parallelization via Ray is still possible)
+#
+# 7. OLLAMA SETUP (for local LLM):
+#    - Download from https://ollama.com
+#    - Install and run: ollama serve
+#    - Pull model: ollama pull llama2 (or llama3.2)
+#    - Ensure Ollama is running before starting the backend
+#
+# 8. INDIAN LANGUAGE SUPPORT:
+#    - Whisper handles 99 languages including all Indian languages
+#    - Download the appropriate Whisper model: python -c "import whisper; whisper.load_model('base')"
+#    - For better accuracy: Use 'small' or 'medium' models (larger, slower)
+#
+# 9. REMOVED DEPENDENCIES (GPU/NVIDIA specific):
+#    - Removed: onnxruntime-gpu (using CPU version instead)
+#    - Removed: pynvml (NVIDIA management library - not applicable to Mac)
+#    - Removed: GPUtil (GPU utility - NVIDIA only)
+#    - These were causing installation failures on Mac
+#
+# 10. TROUBLESHOOTING:
+#    - If pip install fails for MediaPipe or OpenCV:
+#      pip install --upgrade pip
+#      pip install --no-cache-dir mediapipe opencv-python
+#    - For M1/M2 Macs with binary issues:
+#      ARCHFLAGS=-Wno-error=unused-command-line-argument-hard-error-in-future pip install <package>
+# =============================================================================
