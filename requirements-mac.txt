@@ -8,15 +8,15 @@
 # PYTORCH WITHOUT GPU (CPU/Metal Accelerated)
 # Mac will auto-detect Metal acceleration on Apple Silicon
 # =============================================================================
-torch==2.2.0
-torchvision==0.17.0
-torchaudio==2.2.0
+torch==2.7.0
+torchvision==0.22.0
+torchaudio==2.7.0
 
 # =============================================================================
 # CORE BACKEND
 # =============================================================================
 fastapi==0.115.0
-starlette==0.41.3
+starlette==0.38.2
 uvicorn[standard]==0.30.0
 httpx==0.25.2
 python-dotenv==1.0.1
@@ -46,10 +46,10 @@ razorpay==1.4.2
 git+https://github.com/openai/whisper.git
 
 # CPU-based ONNX Runtime (Mac compatible)
-onnxruntime==1.17.1
+onnxruntime==1.27.0
 
 # MediaPipe - Face detection, pose estimation (works on CPU on Mac)
-mediapipe==0.10.14
+mediapipe==0.10.35
 
 # OpenCV - CPU version (headless not needed for development)
 opencv-python==4.10.0.84
@@ -113,7 +113,6 @@ python-docx==1.1.2
 reportlab==4.2.2
 pdf2image==1.17.0
 pdfplumber==0.11.0
-resumepy==1.0.0
 markitdown==0.0.1a2  # Microsoft's MarkItDown for document to Markdown conversion
 beautifulsoup4==4.12.3  # HTML parsing for resume template conversion
 
