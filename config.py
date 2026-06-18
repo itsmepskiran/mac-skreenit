@@ -112,15 +112,22 @@ def validate_config():
         "MYSQL_PASSWORD": MYSQL_PASSWORD,
         "MYSQL_DATABASE": MYSQL_DATABASE
     }
-    
+
     missing_vars = [var for var, value in required_vars.items() if not value]
-    
+
     if missing_vars:
         raise ValueError(
             f"❌ Missing required environment variables: {', '.join(missing_vars)}\n"
             f"Please set these in your .env file."
         )
-    
+
     print("✅ Configuration validated successfully")
-    print("🖥️  Local Server Mode: Xeon E-2276M + 64GB RAM + Quadro T2000")
+
+    # Print platform-aware system information
+    try:
+        from services.platform_utils import print_system_info
+        print_system_info()
+    except ImportError:
+        print("🖥️  Server mode ready")
+
     return True

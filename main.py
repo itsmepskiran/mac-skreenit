@@ -344,6 +344,13 @@ app.add_middleware(
 async def on_startup():
     logger.info("Backend Started")
 
+    # Print platform-aware system information
+    try:
+        from services.platform_utils import print_system_info
+        print_system_info()
+    except Exception as e:
+        logger.warning(f"Could not print system info: {e}")
+
 @app.on_event("shutdown")
 async def on_shutdown():
     logger.info("Backend Stopped")
