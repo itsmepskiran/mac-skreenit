@@ -44,9 +44,10 @@ def _get_face_analyser():
             # 2. Initialize with explicit root if needed
             # Adding root=model_root helps on Windows if the library defaults to the wrong drive
             try:
+                # Use CPU provider for cross-platform compatibility (Windows, Mac, Linux)
                 _face_analyser = FaceAnalysis(
-                    name='buffalo_m', 
-                    root=model_root, 
+                    name='buffalo_m',
+                    root=model_root,
                     providers=['CPUExecutionProvider']
                 )
                 _face_analyser.prepare(ctx_id=0, det_size=(480, 480))
