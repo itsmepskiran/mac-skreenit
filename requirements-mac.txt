@@ -7,10 +7,11 @@
 # =============================================================================
 # PYTORCH WITHOUT GPU (CPU/Metal Accelerated)
 # Mac will auto-detect Metal acceleration on Apple Silicon
+# Updated for compatibility: PyTorch 2.4.0 LTS
 # =============================================================================
-torch==2.2.0
-torchvision==0.17.0
-torchaudio==2.2.0
+torch==2.4.0
+torchvision==0.19.0
+torchaudio==2.4.0
 
 # =============================================================================
 # CORE BACKEND
@@ -45,8 +46,9 @@ razorpay==1.4.2
 # Whisper (OpenAI) - Speech recognition
 git+https://github.com/openai/whisper.git
 
-# CPU-based ONNX Runtime (Mac compatible)
-onnxruntime==1.17.1
+# CPU-based ONNX Runtime (Mac compatible) - Updated to latest stable
+onnxruntime==1.18.1
+protobuf>=3.20.0  # Required by ONNX Runtime
 
 # MediaPipe - Face detection, pose estimation (works on CPU on Mac)
 mediapipe==0.10.14
@@ -78,10 +80,10 @@ textstat==0.7.3
 scipy==1.12.0
 soundfile==0.11.0
 eng-to-ipa==0.0.2
-numpy==1.26.4  # Pinned for compatibility
-sentence-transformers==3.0.1  # For semantic similarity
-transformers==4.44.0  # Hugging Face transformers
-accelerate==0.33.0  # For model acceleration
+numpy==1.26.4  # Pinned for compatibility with all packages
+sentence-transformers==3.0.1  # For semantic similarity - requires transformers>=4.34.0
+transformers==4.41.2  # Hugging Face transformers (stable LTS version)
+accelerate==0.33.0  # For model acceleration (compatible with transformers 4.41.2)
 
 # =============================================================================
 # AI / LLM INTEGRATION (for interview question generation)

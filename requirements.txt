@@ -4,13 +4,14 @@
 # =============================================================================
 
 # =============================================================================
-# PYTORCH WITH GPU SUPPORT (CUDA 12.1)
-# For Quadro T2000 with 4GB VRAM (CUDA 12.8 installed, using 12.1 wheels)
+# PYTORCH WITH GPU SUPPORT (CUDA 12.4)
+# For Quadro T2000 with 4GB VRAM - Updated for latest stable PyTorch
+# CUDA 12.4 is backward compatible with CUDA 12.1/12.8 installations
 # =============================================================================
---extra-index-url https://download.pytorch.org/whl/cu121
-torch==2.2.0+cu121
-torchvision==0.17.0+cu121
-torchaudio==2.2.0+cu121
+--extra-index-url https://download.pytorch.org/whl/cu124
+torch==2.4.0+cu124
+torchvision==0.19.0+cu124
+torchaudio==2.4.0+cu124
 
 # =============================================================================
 # CORE BACKEND
@@ -45,8 +46,9 @@ razorpay==1.4.2
 # Whisper (OpenAI) - Speech recognition
 git+https://github.com/openai/whisper.git
 
-# GPU-accelerated ONNX Runtime
-onnxruntime-gpu==1.17.1
+# GPU-accelerated ONNX Runtime - Updated to latest stable version
+onnxruntime-gpu==1.18.1
+protobuf>=3.20.0  # Required by ONNX Runtime
 
 # MediaPipe - Face detection, pose estimation
 mediapipe==0.10.14
@@ -78,10 +80,10 @@ textstat==0.7.3
 scipy==1.12.0
 soundfile==0.11.0
 eng-to-ipa==0.0.2
-numpy==1.26.4  # Pinned for compatibility
-sentence-transformers==3.0.1  # For semantic similarity
-transformers==4.44.0  # Hugging Face transformers
-accelerate==0.33.0  # For model acceleration
+numpy==1.26.4  # Pinned for compatibility with all packages
+sentence-transformers==3.0.1  # For semantic similarity - requires transformers>=4.34.0
+transformers==4.41.2  # Hugging Face transformers (stable LTS version)
+accelerate==0.33.0  # For model acceleration (compatible with transformers 4.41.2)
 
 # =============================================================================
 # AI / LLM INTEGRATION (for interview question generation)
@@ -146,10 +148,16 @@ prometheus-client==0.21.0
 # =============================================================================
 # NOTES FOR DEPLOYMENT
 # =============================================================================
-# 1. Install CUDA 12.8 toolkit on your machine (PyTorch uses cu121 which is compatible)
+# 1. Install CUDA 12.4+ toolkit on your machine (backward compatible with CUDA 12.1/12.8)
+#    Download from: https://developer.nvidia.com/cuda-downloads
+#    cu124 wheels are backward compatible with older CUDA versions
 # 2. Verify GPU: python -c "import torch; print(torch.cuda.is_available())"
 # 3. Ollama should be installed separately from https://ollama.com
 # 4. This configuration can process multiple videos simultaneously
+#
+# PYTHON COMPATIBILITY:
+# - Works with Python 3.10, 3.11, 3.12
+# - PyTorch 2.4.0 is latest LTS with excellent GPU support
 #
 # INDIAN LANGUAGE SUPPORT SETUP:
 # 5. Download Ollama and pull language model:
@@ -164,5 +172,5 @@ prometheus-client==0.21.0
 # - Intel Xeon E-2276M or equivalent
 # - 64GB RAM (for parallel video processing with Whisper)
 # - NVIDIA Quadro T2000 with 4GB VRAM
-# - CUDA 12.8 compatible drivers
+# - CUDA 12.4+ compatible drivers (backward compatible with 12.1/12.8)
 # =============================================================================
