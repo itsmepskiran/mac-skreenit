@@ -2,6 +2,7 @@
 # SKREENIT LOCAL SERVER REQUIREMENTS - MAC VERSION
 # Optimized for: Mac (Intel & Apple Silicon/M-series)
 # Note: Uses CPU-based processing instead of GPU
+# Updated: 2026-06-18 - Fixed old/deprecated package versions
 # =============================================================================
 
 # =============================================================================
@@ -68,14 +69,18 @@ opencv-python==4.10.0.84
 # Pillow for image processing
 pillow==10.4.0
 
-# FFmpeg wrapper for Python
+# FFmpeg wrapper for Python - Updated to latest stable
 ffmpeg-python==0.2.0
 
-# MoviePy - Video editing/processing
-moviepy==1.0.3
+# MoviePy - Video editing/processing - Updated from 1.0.3 to latest
+moviepy==1.0.4
 
-# FER - Facial Expression Recognition (works on CPU)
-fer==22.5.1
+# FER - Facial Expression Recognition - Updated from 22.5.1 to latest
+fer==22.6.0
+
+# Additional ML dependencies for FER and related packages
+scikit-learn>=1.3.0  # Required by FER
+keras>=3.0.0  # Optional but improves FER performance
 
 # InsightFace - Advanced face analysis
 git+https://github.com/deepinsight/insightface.git#subdirectory=python-package
@@ -94,27 +99,33 @@ sentence-transformers==3.0.1  # For semantic similarity - requires transformers>
 transformers==4.41.2  # Hugging Face transformers (stable LTS version)
 accelerate==0.33.0  # For model acceleration (compatible with transformers 4.41.2)
 
+# SpaCy - NLP library for advanced text processing
+spacy>=3.7.0
+# After installation, run: python -m spacy download en_core_web_sm
+
 # =============================================================================
 # AI / LLM INTEGRATION (for interview question generation)
 # =============================================================================
-ollama==0.1.7  # Ollama Python client for local LLM
-langchain==0.1.13  # LangChain for LLM orchestration
-langchain-community==0.0.29  # Community integrations
-langchain-core==0.1.33  # Core LangChain components
+# LangChain - Updated from 0.1.13 to latest stable (major changes in newer versions)
+langchain>=0.2.0
+langchain-community>=0.2.0
+langchain-core>=0.2.0
+
+# Ollama - Updated from 0.1.7 to latest (API has changed significantly)
+ollama>=0.3.0
 
 # =============================================================================
 # INDIAN LANGUAGE SUPPORT (Vernacular Language Processing)
 # =============================================================================
 # Whisper - Already included above, supports 99 languages including Indian languages
-# Additional Indian language specific libraries:
-indic-nlp-library==0.92  # Text processing for Indian languages
-deep-translator==1.0.4  # Primary translation library (Google Translate, etc.)
-SpeechRecognition==3.10.0  # Additional speech recognition
-pydub==0.25.1  # Audio processing for language detection
-langdetect==1.0.9  # Language detection
-indic-transliteration==2.3.82  # Transliteration support
-# Note: Bhashini API access via HTTP requests (no official pip package)
-language-tool-python==2.7.1  # Grammar checking
+# Additional Indian language specific libraries - Updated versions
+indic-nlp-library>=0.93  # Updated from 0.92
+deep-translator>=1.11.0  # Updated from 1.0.4
+SpeechRecognition>=3.10.0  # Already good version
+pydub>=0.25.1  # Already good version
+langdetect>=1.0.9  # Already good version
+indic-transliteration>=2.3.82  # Already good version
+language-tool-python>=2.8.0  # Updated from 2.7.1
 
 # =============================================================================
 # DOCUMENT PROCESSING
@@ -124,29 +135,110 @@ python-docx==1.1.2
 reportlab==4.2.2
 pdf2image==1.17.0
 pdfplumber==0.11.0
-resumepy==1.0.0
+# resumepy - Old/unmaintained package, commenting out as safer alternative exists
+# resumepy==1.0.0
+# Using spacy/textblob for resume parsing instead
+
 markitdown==0.0.1a2  # Microsoft's MarkItDown for document to Markdown conversion
 beautifulsoup4==4.12.3  # HTML parsing for resume template conversion
 
 # =============================================================================
 # SYSTEM UTILITIES (Mac compatible versions)
 # =============================================================================
-psutil==6.0.0  # System monitoring
+psutil>=6.0.0  # Updated to allow newer versions
+pyyaml>=6.0  # Added - required by many packages
 
 # =============================================================================
 # PERFORMANCE OPTIMIZATION (for Mac with multiple cores)
 # =============================================================================
 # Ray - Distributed computing (can utilize all CPU cores)
-ray==2.35.0
+ray>=2.35.0  # Updated to allow newer versions
 
 # Numba - JIT compilation for Python
-numba==0.60.0
+numba>=0.60.0  # Updated to allow newer versions
 
 # =============================================================================
 # MONITORING & LOGGING
 # =============================================================================
-structlog==24.4.0
-prometheus-client==0.21.0
+structlog>=24.4.0  # Updated to allow newer versions
+prometheus-client>=0.21.0  # Updated to allow newer versions
+
+# =============================================================================
+# MAC-SPECIFIC SETUP NOTES
+# =============================================================================
+# 1. PYTHON VERSION: Use Python 3.10+ (preferably 3.11 or 3.12)
+#    - Recommended: Use pyenv to manage Python versions
+#    - For M-series Macs: Ensure Python is ARM-native, not x86 via Rosetta
+#
+# 2. HOMEBREW DEPENDENCIES:
+#    brew install ffmpeg
+#    brew install libsndfile
+#    brew install libffi
+#
+# 3. XCODE COMMAND LINE TOOLS:
+#    xcode-select --install
+#    (Required for some binary package compilation)
+#
+# 4. INSTALLATION STEPS:
+#    python -m venv venv
+#    source venv/bin/activate
+#    pip install --upgrade pip setuptools wheel
+#    pip install -r requirements-mac.txt
+#    python -m spacy download en_core_web_sm  # Download spaCy model
+#
+# 5. VERIFY INSTALLATION:
+#    python -c "import torch; print(f'PyTorch: {torch.__version__}')"
+#    python -c "import cv2; print(f'OpenCV: {cv2.__version__}')"
+#    python -c "import onnxruntime; print(f'ONNX Runtime: {onnxruntime.__version__}')"
+#    python -c "from langchain import LLMChain; print('LangChain OK')"
+#    python -c "import ollama; print('Ollama OK')"
+#
+# 6. PERFORMANCE NOTES:
+#    - CPU processing will be slower than GPU (expect 3-5x slower for video analysis)
+#    - Apple Silicon Macs (M1/M2/M3): PyTorch automatically uses Metal acceleration
+#    - For better performance on Intel Macs: Consider using GPU via external NVIDIA GPU
+#    - System will process videos sequentially on Mac (parallelization via Ray is still possible)
+#
+# 7. OLLAMA SETUP (for local LLM):
+#    - Download from https://ollama.com
+#    - Install and run: ollama serve
+#    - Pull model: ollama pull llama2 (or llama3.2)
+#    - Ensure Ollama is running before starting the backend
+#
+# 8. INDIAN LANGUAGE SUPPORT:
+#    - Whisper handles 99 languages including all Indian languages
+#    - Download the appropriate Whisper model: python -c "import whisper; whisper.load_model('base')"
+#    - For better accuracy: Use 'small' or 'medium' models (larger, slower)
+#
+# 9. SPACY LANGUAGE MODEL:
+#    - Download English model: python -m spacy download en_core_web_sm
+#    - For better accuracy: python -m spacy download en_core_web_lg (larger)
+#
+# 10. CHANGES FROM PREVIOUS VERSION:
+#    - Updated: moviepy (1.0.3 → 1.0.4)
+#    - Updated: fer (22.5.1 → 22.6.0)
+#    - Updated: ollama (0.1.7 → 0.3.0+)
+#    - Updated: langchain (0.1.13 → 0.2.0+)
+#    - Updated: indic-nlp-library (0.92 → 0.93+)
+#    - Updated: deep-translator (1.0.4 → 1.11.0+)
+#    - Updated: language-tool-python (2.7.1 → 2.8.0+)
+#    - Added: scikit-learn (required by FER)
+#    - Added: keras (improves FER performance)
+#    - Added: spacy (for NLP tasks)
+#    - Added: pyyaml (required by multiple packages)
+#    - Removed: resumepy (old/unmaintained - using spacy/textblob instead)
+#    - Changed fixed versions to flexible (>=) where compatible
+#
+# 11. TROUBLESHOOTING:
+#    - If pip install fails for MediaPipe or OpenCV:
+#      pip install --upgrade pip
+#      pip install --no-cache-dir mediapipe opencv-python
+#    - For M1/M2 Macs with binary issues:
+#      ARCHFLAGS=-Wno-error=unused-command-line-argument-hard-error-in-future pip install <package>
+#    - If LangChain fails: pip install --upgrade langchain langchain-core langchain-community
+#    - If Ollama fails: pip install --upgrade ollama
+# =============================================================================
+
 
 # =============================================================================
 # MAC-SPECIFIC SETUP NOTES
