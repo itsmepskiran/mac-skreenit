@@ -132,20 +132,19 @@ async def get_active_subscriptions(request: Request, db: Session = Depends(get_d
         result = []
         for sub in all_subs:
             plan = mysql_service.get_single_record("pricing_plans", {"id": sub.get("plan_id")})
-            if plan:
-                result.append({
-                    "subscription_id": sub.get("id"),
-                    "plan_id": sub.get("plan_id"),
-                    "plan_name": plan.get("name"),
-                    "plan_label": plan.get("name"),
-                    "service_key": plan.get("service_key"),
-                    "service_type": sub.get("service_type"),
-                    "status": sub.get("status"),
-                    "start_date": sub.get("start_date"),
-                    "expiry_date": sub.get("expiry_date"),
-                    "trial_end_date": sub.get("trial_end_date"),
-                    "features": plan.get("features")
-                })
+            result.append({
+                "subscription_id": sub.get("id"),
+                "plan_id": sub.get("plan_id"),
+                "plan_name": plan.get("name") if plan else "Premium Subscription",
+                "plan_label": plan.get("name") if plan else "Premium Subscription",
+                "service_key": plan.get("service_key") if plan else sub.get("service_type"),
+                "service_type": sub.get("service_type"),
+                "status": sub.get("status"),
+                "start_date": sub.get("start_date"),
+                "expiry_date": sub.get("expiry_date"),
+                "trial_end_date": sub.get("trial_end_date"),
+                "features": plan.get("features") if plan else None
+            })
 
         return {"ok": True, "data": result}
     except HTTPException:
