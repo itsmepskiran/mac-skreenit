@@ -172,6 +172,23 @@ class SubscriptionService:
             if direct_sub:
                 return {"accessible": True, "type": "subscription", "remaining": None}
 
+            # Bundle subscription check: user has an active assessment_bundle whose features JSON contains this key
+            bundle_sub = self.db.execute(
+                text("""
+                    SELECT us.id FROM user_subscriptions us
+                    JOIN pricing_plans pp ON us.plan_id = pp.id
+                    WHERE us.user_id = :user_id
+                      AND pp.service_type = 'assessment_bundle'
+                      AND pp.features LIKE :feature_pattern
+                      AND us.status IN ('active', 'trial')
+                      AND (us.expiry_date IS NULL OR us.expiry_date > NOW())
+                    LIMIT 1
+                """),
+                {"user_id": user_id, "feature_pattern": f'%"{feature_key}"%'}
+            ).fetchone()
+            if bundle_sub:
+                return {"accessible": True, "type": "subscription", "remaining": None}
+
             # Secondary check: per-action usage tokens (bundles / top-ups)
             usage_row = self.db.execute(
                 text("SELECT id, remaining_count FROM user_plan_usage WHERE user_id = :user_id AND feature_key = :feature_key AND remaining_count > 0 LIMIT 1"),

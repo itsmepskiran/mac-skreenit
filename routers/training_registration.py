@@ -23,33 +23,49 @@ router = APIRouter(prefix="/training", tags=["Training Registration"])
 # PRICING FROM DATABASE
 # ============================================================
 
-def get_training_plans():
-    """Fetch active training plans from pricing_plans table."""
-    try:
-        records = mysql_service.get_records("pricing_plans", {
-            "service_type": "training",
-            "is_active": True
-        }, order_by="sort_order")
-        plans = {}
-        for rec in records:
-            key = rec["service_key"]
-            plans[key] = {
-                "name": rec["name"],
-                "price": rec["price_inr"],
-                "duration": rec["duration"] or "Custom",
-                "description": rec.get("description", ""),
-                "features": json.loads(rec.get("features", "[]")),
-                "billing_cycle": rec.get("billing_cycle", "one_time"),
-            }
-        return plans
-    except Exception as e:
-        logger.error(f"Failed to load training plans: {e}")
-        # Fallback to minimal hardcoded list if DB not ready
-        return {
-            "custom": {"name": "Custom Corporate Package", "price": 0, "duration": "Custom"}
-        }
+def _fetch_training_plans_from_db() -> dict:
+    """
+    Query pricing_plans for all active training plans.
+    Accepts both service_type='training' and 'training_plan' so plans
+    created via the admin panel (which uses 'training_plan') are found too.
+    """
+    from sqlalchemy import text
+    from database import get_db
 
-TRAINING_COURSES = get_training_plans()
+    plans = {}
+    try:
+        db = next(get_db())
+        rows = db.execute(
+            text("""
+                SELECT id, service_key, name, price_inr, duration, description,
+                       features, billing_cycle
+                FROM pricing_plans
+                WHERE service_type IN ('training', 'training_plan')
+                  AND is_active = 1
+                ORDER BY sort_order ASC, name ASC
+            """)
+        ).fetchall()
+
+        for row in rows:
+            key = row.service_key
+            try:
+                features = json.loads(row.features or "[]")
+            except Exception:
+                features = []
+            plans[key] = {
+                "plan_db_id": row.id,
+                "name": row.name,
+                "price": row.price_inr,
+                "price_inr": row.price_inr,
+                "duration": row.duration or "Custom",
+                "description": row.description or "",
+                "features": features,
+                "billing_cycle": row.billing_cycle or "one_time",
+            }
+    except Exception as e:
+        logger.error(f"Failed to load training plans from DB: {e}")
+
+    return plans
 
 
 # ============================================================
@@ -58,8 +74,11 @@ TRAINING_COURSES = get_training_plans()
 
 @router.get("/courses")
 async def get_training_courses():
-    """Get list of available training courses (prices are authoritative from here)."""
-    return {"ok": True, "data": TRAINING_COURSES}
+    """Get list of available training courses, queried fresh from the DB each call."""
+    plans = _fetch_training_plans_from_db()
+    if not plans:
+        logger.warning("No training plans found in pricing_plans (service_type in ['training','training_plan'])")
+    return {"ok": True, "data": plans}
 
 
 @router.get("/payment-config")
@@ -91,7 +110,8 @@ async def register_college_training(request: Request, registration_data: dict = 
                     training_course, batch_timing]):
             raise HTTPException(status_code=400, detail="Missing required fields")
 
-        course_info = TRAINING_COURSES.get(training_course)
+        all_courses = _fetch_training_plans_from_db()
+        course_info = all_courses.get(training_course)
         if not course_info:
             raise HTTPException(status_code=400, detail="Invalid training course")
 
@@ -176,7 +196,8 @@ async def register_corporate_training(request: Request, registration_data: dict 
                     training_course, employee_count, training_mode, duration]):
             raise HTTPException(status_code=400, detail="Missing required fields")
 
-        course_info = TRAINING_COURSES.get(training_course)
+        all_courses = _fetch_training_plans_from_db()
+        course_info = all_courses.get(training_course)
         if not course_info:
             raise HTTPException(status_code=400, detail="Invalid training course")
 

@@ -60,7 +60,7 @@ class OllamaService:
         num_questions: int = 5,
         assessment_type: str = 'general'
     ) -> List[Dict[str, Any]]:
-        """Generate assessment questions using Ollama LLM"""
+        """Generate open-ended assessment questions using Ollama LLM"""
         cache_key = f"{assessment_name}_{num_questions}"
         if cache_key in self.cache:
             cached_data, timestamp = self.cache[cache_key]
@@ -86,6 +86,96 @@ class OllamaService:
         except Exception as e:
             logger.error(f"Failed to generate questions: {str(e)}")
             return []
+
+    def generate_mcq_questions(
+        self,
+        assessment_name: str,
+        assessment_desc: str,
+        skills: str,
+        num_questions: int = 5,
+    ) -> List[Dict[str, Any]]:
+        """Generate MCQ questions with 4 options using Ollama. Correct answer is always option A."""
+        cache_key = f"mcq_{assessment_name}_{num_questions}"
+        if cache_key in self.cache:
+            cached_data, timestamp = self.cache[cache_key]
+            if datetime.now() - timestamp < timedelta(seconds=self.cache_ttl):
+                logger.info(f"Using cached MCQ questions for {assessment_name}")
+                return cached_data
+
+        if not self.is_ollama_available():
+            return []
+
+        model = self._resolve_model('general')
+        if not model:
+            return []
+
+        prompt = f"""You are an expert assessment designer. Generate exactly {num_questions} multiple-choice questions for:
+
+Assessment: {assessment_name}
+Description: {assessment_desc}
+Skills assessed: {skills}
+
+Output ONLY the questions in this exact format (no extra text, no numbering):
+
+Q: <question text>
+A: <correct answer>
+B: <plausible wrong answer>
+C: <plausible wrong answer>
+D: <plausible wrong answer>
+
+Rules:
+- Option A is ALWAYS the correct answer
+- Distractors (B, C, D) must be plausible but clearly wrong
+- Questions must test the listed skills
+- Keep question text concise and professional
+- No preamble, no explanations, just the Q/A/B/C/D blocks separated by blank lines"""
+
+        try:
+            url = f"{self.base_url}/api/generate"
+            response = requests.post(
+                url,
+                json={"model": model, "prompt": prompt, "stream": False, "temperature": 0.6},
+                timeout=180,
+            )
+            response.raise_for_status()
+            questions = self._parse_mcq_response(response.json().get("response", ""), num_questions)
+            self.cache[cache_key] = (questions, datetime.now())
+            logger.info(f"Generated {len(questions)} MCQ questions for {assessment_name}")
+            return questions
+        except Exception as e:
+            logger.error(f"MCQ generation failed: {str(e)}")
+            return []
+
+    def _parse_mcq_response(self, text: str, num_questions: int) -> List[Dict[str, Any]]:
+        """Parse Q/A/B/C/D blocks from Ollama MCQ response."""
+        questions = []
+        current: Dict[str, Any] = {}
+        for line in text.split('\n'):
+            line = line.strip()
+            if not line:
+                continue
+            if line.upper().startswith('Q:'):
+                if current.get('content') and current.get('options'):
+                    questions.append(current)
+                current = {'content': line[2:].strip(), 'options': [], 'correct': 0}
+            elif line.upper().startswith('A:') and current:
+                current['options'].append(line[2:].strip())
+            elif line.upper().startswith('B:') and current:
+                current['options'].append(line[2:].strip())
+            elif line.upper().startswith('C:') and current:
+                current['options'].append(line[2:].strip())
+            elif line.upper().startswith('D:') and current:
+                current['options'].append(line[2:].strip())
+        if current.get('content') and current.get('options'):
+            questions.append(current)
+
+        result = []
+        for i, q in enumerate(questions[:num_questions], 1):
+            opts = q['options'][:4]
+            while len(opts) < 4:
+                opts.append('None of the above')
+            result.append({'id': f'q{i}', 'content': q['content'], 'options': opts, 'correct': 0})
+        return result
 
     def _resolve_model(self, assessment_type: str) -> Optional[str]:
         """Return the best available model for the given assessment type.
@@ -196,6 +286,163 @@ Questions:"""
         """Verify if a specific model is available"""
         available = self.get_available_models()
         return any(model_name in m for m in available)
+
+    def generate_coding_challenge_questions(
+        self,
+        platform: str,
+        num_questions: int = 3,
+    ) -> List[Dict[str, Any]]:
+        """Generate coding problem descriptions for a specific language using Ollama."""
+        cache_key = f"coding_challenge_{platform}_{num_questions}"
+        if cache_key in self.cache:
+            cached_data, timestamp = self.cache[cache_key]
+            if datetime.now() - timestamp < timedelta(seconds=self.cache_ttl):
+                return cached_data
+
+        if not self.is_ollama_available():
+            return []
+
+        model = self._resolve_model('technical')
+        if not model:
+            return []
+
+        prompt = f"""Generate exactly {num_questions} beginner coding problems for {platform}.
+
+Each problem should be solvable in 20-30 minutes by an entry-level programmer.
+Topics to cover: loops, conditionals, functions, basic data structures.
+
+Output exactly {num_questions} problems as a numbered list.
+Each item: 2-4 sentences describing the function name, requirements, and one concrete input/output example.
+No starter code. No extra commentary. Just the numbered list.
+
+Problems:"""
+
+        try:
+            url = f"{self.base_url}/api/generate"
+            response = requests.post(
+                url,
+                json={"model": model, "prompt": prompt, "stream": False, "temperature": 0.55},
+                timeout=180,
+            )
+            response.raise_for_status()
+            questions = self._parse_questions(response.json().get("response", ""), num_questions)
+            for q in questions:
+                q['platform'] = platform
+            self.cache[cache_key] = (questions, datetime.now())
+            logger.info(f"Generated {len(questions)} coding challenges for {platform}")
+            return questions
+        except Exception as e:
+            logger.error(f"Coding challenge generation failed for {platform}: {str(e)}")
+            return []
+
+    def generate_typing_paragraph(self, duration_minutes: int) -> str:
+        """Generate a long prose passage sized for a typing speed test of given duration."""
+        duration_minutes = max(1, min(10, duration_minutes))
+        target_words = int(100 * duration_minutes * 1.5)
+
+        cache_key = f"typing_paragraph_{duration_minutes}"
+        if cache_key in self.cache:
+            cached_data, timestamp = self.cache[cache_key]
+            if datetime.now() - timestamp < timedelta(seconds=self.cache_ttl):
+                logger.info(f"Using cached typing paragraph for {duration_minutes}min")
+                return cached_data
+
+        if not self.is_ollama_available():
+            return self._get_typing_fallback(duration_minutes)
+
+        model = self._resolve_model('general')
+        if not model:
+            return self._get_typing_fallback(duration_minutes)
+
+        prompt = (
+            f"Write a continuous, engaging prose passage of approximately {target_words} words "
+            f"for a professional typing speed test.\n\n"
+            f"Requirements:\n"
+            f"- Exactly {target_words} words of flowing prose — no headings, no bullet points, no lists\n"
+            f"- Cover topics such as workplace communication, technology, nature, or everyday professional life\n"
+            f"- Use varied sentence lengths and natural punctuation (commas, periods, semicolons, colons, "
+            f"quotation marks, exclamation marks)\n"
+            f"- Make it interesting and educational so the reader stays engaged\n"
+            f"- Do NOT include any preamble, title, or explanation — start directly with the first word\n\n"
+            f"Begin the passage now:"
+        )
+
+        try:
+            url = f"{self.base_url}/api/generate"
+            response = requests.post(
+                url,
+                json={"model": model, "prompt": prompt, "stream": False, "temperature": 0.72},
+                timeout=300,
+            )
+            response.raise_for_status()
+            raw = response.json().get("response", "").strip()
+
+            # Strip common preamble patterns Ollama sometimes adds
+            lines = raw.split('\n')
+            clean = []
+            for line in lines:
+                stripped = line.strip()
+                if not stripped:
+                    if clean:
+                        clean.append(' ')
+                    continue
+                low = stripped.lower()
+                if any(low.startswith(p) for p in ('here is', 'here\'s', 'passage:', 'typing test:', '#')):
+                    continue
+                clean.append(stripped)
+            text = ' '.join(clean).strip()
+
+            if len(text.split()) < target_words * 0.4:
+                logger.warning("Ollama produced too short a typing paragraph; using fallback")
+                return self._get_typing_fallback(duration_minutes)
+
+            self.cache[cache_key] = (text, datetime.now())
+            logger.info(f"Generated typing paragraph: {len(text.split())} words for {duration_minutes}min test")
+            return text
+        except Exception as e:
+            logger.error(f"Typing paragraph generation failed: {e}")
+            return self._get_typing_fallback(duration_minutes)
+
+    def _get_typing_fallback(self, duration_minutes: int) -> str:
+        """Return a fallback paragraph long enough for the given test duration."""
+        base = (
+            "In today's fast-paced digital world, the ability to communicate effectively through written words "
+            "has become more important than ever before. Whether you are drafting an important email to a senior "
+            "colleague, preparing a detailed report for a client presentation, or simply responding to messages "
+            "in a professional chat, your typing speed and accuracy directly impact your productivity and "
+            "professional image. Many employers now consider keyboard proficiency a fundamental skill, alongside "
+            "communication abilities and technical knowledge. The modern workplace demands that professionals "
+            "express their ideas clearly, concisely, and without hesitation. A well-articulated message, free of "
+            "typographical errors and grammatical mistakes, demonstrates attention to detail and a commitment to "
+            "excellence that resonates with supervisors, peers, and clients alike. Beyond the professional realm, "
+            "fast and accurate typing enables you to capture your thoughts before they fade from memory, allowing "
+            "for more creative expression in both personal and professional contexts. The best typists do not "
+            "merely move their fingers quickly across the keyboard; they have internalized the layout so thoroughly "
+            "that each keystroke becomes an extension of their thought process, creating a seamless flow between "
+            "intention and execution. This level of mastery comes only through consistent practice and genuine "
+            "dedication to improvement. Technology continues to evolve at a rapid pace, bringing new tools, "
+            "platforms, and communication channels that require adaptability and a willingness to learn "
+            "continuously. Organizations that embrace digital transformation tend to outperform their competitors "
+            "by streamlining workflows, reducing manual processes, and enabling teams to collaborate more "
+            "efficiently across geographical boundaries. Remote work has placed renewed emphasis on written "
+            "communication, as virtual teams rely almost exclusively on emails, messaging platforms, and "
+            "collaborative documents to coordinate their efforts. Scientific research demonstrates that individuals "
+            "who regularly practise their typing skills show measurable improvements in overall productivity. "
+            "The connection between physical dexterity and cognitive performance is well-documented; many experts "
+            "note that the rhythmic nature of typing can help stimulate creative thinking and maintain focus "
+            "during long work sessions. As artificial intelligence continues to transform various industries, "
+            "human professionals who can quickly and accurately translate their expertise into written form will "
+            "remain indispensable, particularly in roles requiring nuanced judgment, empathy, and creative "
+            "problem-solving. Developing strong keyboard habits early in one's career pays dividends throughout "
+            "an entire professional lifetime. Practice sessions need not be long; even ten focused minutes each "
+            "day can produce significant results over the course of a few weeks. "
+        )
+        target_words = int(100 * duration_minutes * 1.5)
+        words = base.split()
+        result: list = []
+        while len(result) < target_words:
+            result.extend(words)
+        return ' '.join(result[:target_words])
 
     def clear_cache(self):
         """Clear the question cache"""

@@ -573,11 +573,16 @@ def _confirm_subscription(subscription: dict, payment_method: str, transaction_i
 
 def _extract_feature_keys(plan: dict) -> list:
     """
-    Extract feature keys from plan using service_key as the primary identifier.
-    The 'features' JSON field contains descriptions, not feature keys.
+    Extract feature keys from plan.
+    For bundle plans, the 'features' JSON array contains the individual assessment keys.
+    For individual plans, falls back to service_key.
     """
     try:
-        # The service_key is the actual feature identifier
+        features = plan.get("features")
+        if features:
+            feature_list = json.loads(features) if isinstance(features, str) else features
+            if isinstance(feature_list, list) and feature_list:
+                return feature_list
         service_key = plan.get("service_key")
         if service_key:
             return [service_key]
