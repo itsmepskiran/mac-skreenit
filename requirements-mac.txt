@@ -97,7 +97,7 @@ langchain-core==0.1.33  # Core LangChain components
 # Whisper - Already included above, supports 99 languages including Indian languages
 # Additional Indian language specific libraries:
 indic-nlp-library==0.92  # Text processing for Indian languages
-deep-translator==1.0.4  # Primary translation library (Google Translate, etc.)
+deep-translator==1.11.4  # Primary translation library (Google Translate, etc.)
 SpeechRecognition==3.10.0  # Additional speech recognition
 pydub==0.25.1  # Audio processing for language detection
 langdetect==1.0.9  # Language detection

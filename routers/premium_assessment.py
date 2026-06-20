@@ -588,7 +588,7 @@ async def get_assessment_questions(
         allowed_platforms = {'python', 'javascript', 'typescript', 'java', 'cpp', 'go', 'sql'}
         platform = platform.lower() if platform and platform.lower() in allowed_platforms else None
 
-        # Always attempt Ollama first — hardcoded content is the fallback
+        # Always attempt Ollama first — hardcoded content is the fallback when Ollama is unavailable
         ollama_questions = []
         ollama_mcq = []
         if ollama_service.is_ollama_available():
