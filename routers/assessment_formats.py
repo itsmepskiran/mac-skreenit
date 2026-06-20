@@ -638,12 +638,6 @@ MCQ_FALLBACK: Dict[str, List[Dict]] = {
         {'id': 'q3', 'content': 'Concrete curing is done to?', 'options': ['Maintain moisture for full hydration and strength development', 'Accelerate drying time', 'Add binding agents', 'Seal against rainwater'], 'correct': 0},
         {'id': 'q4', 'content': 'Material for waterproofing flat roofs?', 'options': ['Bituminous membrane or polyurethane waterproofing compound', 'Ordinary cement plaster', 'Sand mortar screed', 'Plain concrete'], 'correct': 0},
     ],
-    'mfg_safety': [
-        {'id': 'q1', 'content': 'PPE stands for?', 'options': ['Personal Protective Equipment', 'Production Process Engineering', 'Plant Preventive Equipment', 'Process Performance Evaluation'], 'correct': 0},
-        {'id': 'q2', 'content': 'First action if you spot a chemical spill?', 'options': ['Alert colleagues and follow emergency spill procedure', 'Clean it yourself', 'Ignore small spills', 'Report at end of shift'], 'correct': 0},
-        {'id': 'q3', 'content': 'LOTO (Lockout-Tagout) procedure is used to?', 'options': ['Safely de-energize machines before maintenance', 'Secure cabinets', 'Track production', 'Verify materials'], 'correct': 0},
-        {'id': 'q4', 'content': 'SDS (Safety Data Sheet) provides info about?', 'options': ['Hazardous chemicals and safe handling', 'Shift schedules', 'QC metrics', 'Production targets'], 'correct': 0},
-    ],
     # FREE / GENERAL PLAN MCQ ASSESSMENTS
     'gen_aptitude': [
         {'id': 'q1',  'content': 'If a train travels 240 km in 3 hours, what is its speed?',                                                          'options': ['80 km/h', '60 km/h', '90 km/h', '75 km/h'],                                   'correct': 0},
@@ -753,7 +747,7 @@ def build_sections(assessment_key: str, metadata: dict, ollama_questions: list =
         return sections
 
     elif fmt == 'voice_scenario':
-        # Prefer Ollama-generated scenarios; fall back to hardcoded, then generic
+        # Ollama-generated scenarios first; fall back to hardcoded, then generic
         items = None
         if ollama_questions:
             items = [
@@ -778,7 +772,7 @@ def build_sections(assessment_key: str, metadata: dict, ollama_questions: list =
         }]
 
     elif fmt == 'text_writing':
-        # Prefer Ollama-generated prompts; fall back to hardcoded, then generic
+        # Ollama-generated prompts first; fall back to hardcoded, then generic
         if ollama_questions:
             return [{
                 'id': 's_writing',

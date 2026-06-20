@@ -42,29 +42,29 @@ BHASHINI_AVAILABLE = False  # Requires API key setup
 
 # Supported Indian Languages (22 scheduled languages)
 INDIAN_LANGUAGES = {
-    'hi': {'name': 'Hindi', 'script': 'Devanagari'},
-    'bn': {'name': 'Bengali', 'script': 'Bengali'},
-    'te': {'name': 'Telugu', 'script': 'Telugu'},
-    'mr': {'name': 'Marathi', 'script': 'Devanagari'},
-    'ta': {'name': 'Tamil', 'script': 'Tamil'},
-    'ur': {'name': 'Urdu', 'script': 'Perso-Arabic'},
-    'gu': {'name': 'Gujarati', 'script': 'Gujarati'},
-    'kn': {'name': 'Kannada', 'script': 'Kannada'},
-    'ml': {'name': 'Malayalam', 'script': 'Malayalam'},
-    'or': {'name': 'Odia', 'script': 'Odia'},
-    'pa': {'name': 'Punjabi', 'script': 'Gurmukhi'},
-    'as': {'name': 'Assamese', 'script': 'Bengali'},
-    'ne': {'name': 'Nepali', 'script': 'Devanagari'},
-    'si': {'name': 'Sinhala', 'script': 'Sinhala'},
-    'sd': {'name': 'Sindhi', 'script': 'Perso-Arabic'},
-    'sa': {'name': 'Sanskrit', 'script': 'Devanagari'},
-    'kok': {'name': 'Konkani', 'script': 'Devanagari'},
-    'mni': {'name': 'Manipuri', 'script': 'Bengali/Meetei'},
-    'brx': {'name': 'Bodo', 'script': 'Devanagari'},
-    'doi': {'name': 'Dogri', 'script': 'Devanagari'},
-    'sat': {'name': 'Santali', 'script': 'Ol Chiki'},
-    'ks': {'name': 'Kashmiri', 'script': 'Perso-Arabic/Devanagari'},
-    'en': {'name': 'English', 'script': 'Latin'}  # Including English as reference
+    'hi': {'name': 'Hindi', 'script': 'Devanagari', 'native': 'हिन्दी'},
+    'bn': {'name': 'Bengali', 'script': 'Bengali', 'native': 'বাংলা'},
+    'te': {'name': 'Telugu', 'script': 'Telugu', 'native': 'తెలుగు'},
+    'mr': {'name': 'Marathi', 'script': 'Devanagari', 'native': 'मराठी'},
+    'ta': {'name': 'Tamil', 'script': 'Tamil', 'native': 'தமிழ்'},
+    'ur': {'name': 'Urdu', 'script': 'Perso-Arabic', 'native': 'اردو'},
+    'gu': {'name': 'Gujarati', 'script': 'Gujarati', 'native': 'ગુજરાતી'},
+    'kn': {'name': 'Kannada', 'script': 'Kannada', 'native': 'ಕನ್ನಡ'},
+    'ml': {'name': 'Malayalam', 'script': 'Malayalam', 'native': 'മലയാളം'},
+    'or': {'name': 'Odia', 'script': 'Odia', 'native': 'ଓଡ଼ିଆ'},
+    'pa': {'name': 'Punjabi', 'script': 'Gurmukhi', 'native': 'ਪੰਜਾਬੀ'},
+    'as': {'name': 'Assamese', 'script': 'Bengali', 'native': 'অসমীয়া'},
+    'ne': {'name': 'Nepali', 'script': 'Devanagari', 'native': 'नेपाली'},
+    'si': {'name': 'Sinhala', 'script': 'Sinhala', 'native': 'සිංහල'},
+    'sd': {'name': 'Sindhi', 'script': 'Perso-Arabic', 'native': 'سنڌي'},
+    'sa': {'name': 'Sanskrit', 'script': 'Devanagari', 'native': 'संस्कृतम्'},
+    'kok': {'name': 'Konkani', 'script': 'Devanagari', 'native': 'कोंकणी'},
+    'mni': {'name': 'Manipuri', 'script': 'Bengali/Meetei', 'native': 'মণিপুরী'},
+    'brx': {'name': 'Bodo', 'script': 'Devanagari', 'native': 'बड़ो'},
+    'doi': {'name': 'Dogri', 'script': 'Devanagari', 'native': 'डोगरी'},
+    'sat': {'name': 'Santali', 'script': 'Ol Chiki', 'native': 'ᱥᱟᱱᱛᱟᱲᱤ'},
+    'ks': {'name': 'Kashmiri', 'script': 'Perso-Arabic/Devanagari', 'native': 'کٲشُر'},
+    'en': {'name': 'English', 'script': 'Latin', 'native': 'English'}
 }
 
 # Whisper language codes mapping
@@ -281,11 +281,13 @@ class IndianLanguageService:
         """Get list of supported languages with metadata."""
         languages = []
         for code, info in self.INDIAN_LANGUAGES.items():
+            native = info.get('native', info['name'])
             languages.append({
                 'code': code,
                 'name': info['name'],
                 'script': info.get('script', 'Latin'),
-                'native_name': info.get('native_name', info['name'])
+                'native': native,
+                'native_name': native
             })
         return languages
 
