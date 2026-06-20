@@ -16,7 +16,7 @@ torchaudio==2.2.0+cu121
 # CORE BACKEND
 # =============================================================================
 fastapi==0.115.0
-starlette==0.41.3
+starlette==0.38.2
 uvicorn[standard]==0.30.0
 httpx==0.25.2
 python-dotenv==1.0.1
@@ -97,7 +97,7 @@ langchain-core==0.1.33  # Core LangChain components
 # Whisper - Already included above, supports 99 languages including Indian languages
 # Additional Indian language specific libraries:
 indic-nlp-library==0.92  # Text processing for Indian languages
-deep-translator==1.0.4  # Primary translation library (Google Translate, etc.)
+deep-translator==1.11.4  # Primary translation library (Google Translate, etc.)
 SpeechRecognition==3.10.0  # Additional speech recognition
 pydub==0.25.1  # Audio processing for language detection
 langdetect==1.0.9  # Language detection
@@ -113,7 +113,6 @@ python-docx==1.1.2
 reportlab==4.2.2
 pdf2image==1.17.0
 pdfplumber==0.11.0
-resumepy==1.0.0
 markitdown==0.0.1a2  # Microsoft's MarkItDown for document to Markdown conversion
 beautifulsoup4==4.12.3  # HTML parsing for resume template conversion
 
