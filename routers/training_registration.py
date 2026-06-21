@@ -175,26 +175,25 @@ async def register_corporate_training(request: Request, registration_data: dict 
     """Register company for corporate training."""
     try:
         company_name            = registration_data.get("companyName")
-        company_hq              = registration_data.get("companyHQ")
-        company_headcount       = registration_data.get("companyHC")
-        industry                = registration_data.get("industry")
-        company_type            = registration_data.get("companyType")
-        company_website         = registration_data.get("companyWebsite")
+        company_hq              = registration_data.get("companyHQ") or "To be confirmed"
+        company_headcount       = registration_data.get("companyHC") or "To be confirmed"
+        industry                = registration_data.get("industry") or "Other"
+        company_type            = registration_data.get("companyType") or "Private"
+        company_website         = registration_data.get("companyWebsite") or ""
         contact_name            = registration_data.get("contactName")
-        contact_designation     = registration_data.get("contactDesignation")
+        contact_designation     = registration_data.get("contactDesignation") or "Representative"
         contact_email           = registration_data.get("contactEmail")
         contact_mobile          = registration_data.get("contactMobile")
         training_course         = registration_data.get("trainingCourse")
-        employee_count          = registration_data.get("employeeCount")
-        training_mode           = registration_data.get("trainingMode")
+        employee_count          = registration_data.get("employeeCount") or "1"
+        training_mode           = registration_data.get("trainingMode") or "online"
         preferred_date          = registration_data.get("preferredDate")
-        duration                = registration_data.get("duration")
+        duration                = registration_data.get("duration") or "Custom"
         additional_requirements = registration_data.get("additionalRequirements")
 
-        if not all([company_name, company_hq, company_headcount, industry, company_type,
-                    contact_name, contact_designation, contact_email, contact_mobile,
-                    training_course, employee_count, training_mode, duration]):
-            raise HTTPException(status_code=400, detail="Missing required fields")
+        # Only truly required: company name, contact info, and which course
+        if not all([company_name, contact_name, contact_email, contact_mobile, training_course]):
+            raise HTTPException(status_code=400, detail="Missing required fields: company name, contact details, and training course are required")
 
         all_courses = _fetch_training_plans_from_db()
         course_info = all_courses.get(training_course)
