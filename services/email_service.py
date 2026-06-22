@@ -64,34 +64,45 @@ class EmailService:
             logger.error("RESEND_API_KEY not found in environment")
     
     async def send_verification_email(self, to_email, full_name, confirmation_url):
-        """Send verification email using Resend API with our template"""
+        """Send verification email using Resend API.
+        Primary: branded HTML template from disk.
+        Fallback: simple inline HTML so the email always goes out.
+        """
         try:
             if not self.api_key:
                 return {"status": "error", "message": "Resend API key not configured"}
 
             logger.info(f"Sending verification email via Resend to {to_email}")
 
-            # Get template path with fallback support
             template_path = _get_template_path('welcome')
-            if not template_path:
-                logger.error("Verification email template not found")
-                return {"status": "error", "message": "Email template not found"}
+            if template_path:
+                with open(template_path, 'r', encoding='utf-8') as f:
+                    html_content = f.read()
+                html_content = html_content.replace('{{full_name}}', full_name)
+                html_content = html_content.replace('{{confirmation_url}}', confirmation_url)
+                logger.info("Using branded HTML template for verification email")
+            else:
+                logger.warning("Verification template not found — sending inline fallback email")
+                html_content = f"""
+                <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px">
+                    <h2 style="color:#667eea">Welcome to Skreenit, {full_name}!</h2>
+                    <p>Thank you for registering. Please confirm your email address to activate your account:</p>
+                    <p style="margin:24px 0">
+                        <a href="{confirmation_url}"
+                           style="background:#667eea;color:#fff;padding:12px 24px;border-radius:5px;text-decoration:none;font-weight:bold">
+                            Confirm Your Email
+                        </a>
+                    </p>
+                    <p style="color:#888;font-size:13px">This link expires in 24 hours.
+                    If you didn't create an account you can ignore this email.</p>
+                </div>"""
 
-            with open(template_path, 'r', encoding='utf-8') as f:
-                html_content = f.read()
-
-            # Replace template variables
-            html_content = html_content.replace('{{full_name}}', full_name)
-            html_content = html_content.replace('{{confirmation_url}}', confirmation_url)
-
-            params = {
+            response = resend.Emails.send({
                 "from": f"{self.from_name} <{self.from_email}>",
                 "to": [to_email],
                 "subject": "Verify Your Skreenit Account",
                 "html": html_content
-            }
-
-            response = resend.Emails.send(params)
+            })
             logger.info(f"Verification email sent via Resend! ID: {response.get('id')}")
             return {"status": "success", "message": f"Email sent: {response.get('id')}"}
 
@@ -100,34 +111,46 @@ class EmailService:
             return {"status": "error", "message": str(e)}
     
     async def send_password_reset_email(self, to_email, full_name, reset_url):
-        """Send password reset email using Resend API with our template"""
+        """Send password reset email using Resend API.
+        Primary: branded HTML template from disk.
+        Fallback: simple inline HTML so the email always goes out.
+        """
         try:
             if not self.api_key:
                 return {"status": "error", "message": "Resend API key not configured"}
 
             logger.info(f"Sending password reset email via Resend to {to_email}")
 
-            # Get template path with fallback support
             template_path = _get_template_path('password_reset')
-            if not template_path:
-                logger.error("Password reset email template not found")
-                return {"status": "error", "message": "Email template not found"}
+            if template_path:
+                with open(template_path, 'r', encoding='utf-8') as f:
+                    html_content = f.read()
+                html_content = html_content.replace('{{full_name}}', full_name)
+                html_content = html_content.replace('{{reset_url}}', reset_url)
+                logger.info("Using branded HTML template for password reset email")
+            else:
+                logger.warning("Password reset template not found — sending inline fallback email")
+                html_content = f"""
+                <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px">
+                    <h2 style="color:#667eea">Reset Your Skreenit Password</h2>
+                    <p>Hi {full_name},</p>
+                    <p>We received a request to reset your password. Click the button below to set a new one:</p>
+                    <p style="margin:24px 0">
+                        <a href="{reset_url}"
+                           style="background:#667eea;color:#fff;padding:12px 24px;border-radius:5px;text-decoration:none;font-weight:bold">
+                            Reset My Password
+                        </a>
+                    </p>
+                    <p style="color:#888;font-size:13px">This link expires in 1 hour.
+                    If you didn't request a reset you can ignore this email.</p>
+                </div>"""
 
-            with open(template_path, 'r', encoding='utf-8') as f:
-                html_content = f.read()
-
-            # Replace template variables
-            html_content = html_content.replace('{{full_name}}', full_name)
-            html_content = html_content.replace('{{reset_url}}', reset_url)
-
-            params = {
+            response = resend.Emails.send({
                 "from": f"{self.from_name} <{self.from_email}>",
                 "to": [to_email],
                 "subject": "Reset Your Skreenit Password",
                 "html": html_content
-            }
-
-            response = resend.Emails.send(params)
+            })
             logger.info(f"Password reset email sent via Resend! ID: {response.get('id')}")
             return {"status": "success", "message": f"Email sent: {response.get('id')}"}
 
@@ -185,36 +208,49 @@ class EmailService:
             return {"status": "error", "message": str(e)}
     
     async def send_recruiter_welcome_email(self, to_email, full_name, company_id, login_url):
-        """Send recruiter welcome email with login credentials using Resend API with our template"""
+        """Send recruiter welcome email using Resend API.
+        Primary: branded HTML template from disk.
+        Fallback: simple inline HTML so the email always goes out.
+        """
         try:
             if not self.api_key:
                 return {"status": "error", "message": "Resend API key not configured"}
 
             logger.info(f"Sending recruiter welcome email via Resend to {to_email}")
 
-            # Get template path with fallback support
             template_path = _get_template_path('recruiter_welcome')
-            if not template_path:
-                logger.error("Recruiter welcome email template not found")
-                return {"status": "error", "message": "Email template not found"}
+            if template_path:
+                with open(template_path, 'r', encoding='utf-8') as f:
+                    html_content = f.read()
+                html_content = html_content.replace('{{full_name}}', full_name)
+                html_content = html_content.replace('{{email}}', to_email)
+                html_content = html_content.replace('{{company_id}}', company_id)
+                html_content = html_content.replace('{{login_url}}', login_url)
+                logger.info("Using branded HTML template for recruiter welcome email")
+            else:
+                logger.warning("Recruiter welcome template not found — sending inline fallback email")
+                html_content = f"""
+                <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px">
+                    <h2 style="color:#667eea">Your Recruiter Account is Ready, {full_name}!</h2>
+                    <p>Your recruiter account has been created. Here are your details:</p>
+                    <ul style="line-height:2">
+                        <li><strong>Login Email:</strong> {to_email}</li>
+                        <li><strong>Company ID:</strong> {company_id}</li>
+                    </ul>
+                    <p style="margin:24px 0">
+                        <a href="{login_url}"
+                           style="background:#667eea;color:#fff;padding:12px 24px;border-radius:5px;text-decoration:none;font-weight:bold">
+                            Login to Your Account
+                        </a>
+                    </p>
+                </div>"""
 
-            with open(template_path, 'r', encoding='utf-8') as f:
-                html_content = f.read()
-
-            # Replace template variables
-            html_content = html_content.replace('{{full_name}}', full_name)
-            html_content = html_content.replace('{{email}}', to_email)
-            html_content = html_content.replace('{{company_id}}', company_id)
-            html_content = html_content.replace('{{login_url}}', login_url)
-
-            params = {
+            response = resend.Emails.send({
                 "from": f"{self.from_name} <{self.from_email}>",
                 "to": [to_email],
                 "subject": "Your Recruiter Account is Ready!",
                 "html": html_content
-            }
-
-            response = resend.Emails.send(params)
+            })
             logger.info(f"Recruiter welcome email sent via Resend! ID: {response.get('id')}")
             return {"status": "success", "message": f"Email sent: {response.get('id')}"}
 
