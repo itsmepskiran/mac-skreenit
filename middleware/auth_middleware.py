@@ -87,10 +87,13 @@ class CustomAuthMiddleware(BaseHTTPMiddleware):
         clean_path = path_without_query.rstrip("/")
         is_excluded = clean_path in self.excluded_paths or path_without_query in self.excluded_paths
 
-        # Also exclude subscription details endpoint (dynamic subscription ID)
-        # Only GET requests to /api/v1/subscription/{id} are excluded
-        if request.method == "GET" and clean_path.startswith("/api/v1/subscription/sub_"):
-            is_excluded = True
+        # Also exclude dynamic-ID GET endpoints that are public by design
+        if request.method == "GET":
+            if clean_path.startswith("/api/v1/subscription/sub_"):
+                is_excluded = True
+            elif clean_path.startswith("/api/v1/training/registrations/CORP") or \
+                 clean_path.startswith("/api/v1/training/registrations/STU"):
+                is_excluded = True
 
         if is_excluded:
             return await call_next(request)

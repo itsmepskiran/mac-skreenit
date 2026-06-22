@@ -1,26 +1,25 @@
 # backend/services/email_service.py
 import os
-import resend
+import smtplib
+import asyncio
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 from pathlib import Path
 from typing import Optional
 from utils_others.logger import logger
 
 
 def _get_template_path(template_name: str) -> Optional[str]:
-    """
-    Find email template file with multiple fallback paths.
-    Works across different directory structures and platforms (Mac, Linux, Windows).
+    """Find email template file across common deployment layouts."""
+    base_paths = []
 
-    Args:
-        template_name: Name of the template without path or extension (e.g., 'welcome', 'password_reset')
+    env_path = os.getenv("EMAIL_TEMPLATES_PATH")
+    if env_path:
+        base_paths.append(Path(env_path))
 
-    Returns:
-        Full path to template file or None if not found
-    """
-    base_paths = [
-        Path(__file__).parent.parent / 'assets' / 'templates',
-        Path(__file__).parent.parent.parent / 'Skreenit_App' / 'assets' / 'templates',
+    base_paths += [
         Path(__file__).parent.parent.parent / 'sql-skreenit' / 'assets' / 'templates',
+        Path(__file__).parent.parent.parent / 'Skreenit_App' / 'assets' / 'templates',
         Path.home() / 'Skreenit_App' / 'assets' / 'templates',
     ]
 
@@ -32,198 +31,206 @@ def _get_template_path(template_name: str) -> Optional[str]:
             logger.info(f"Found template '{template_name}' at: {template_path}")
             return str(template_path)
 
-    logger.warning(f"Template '{template_name}' not found in any expected path. Tried: {[str(p) for p in base_paths]}")
+    logger.warning(f"Template '{template_name}' not found. Tried: {[str(p) for p in base_paths]}")
     return None
+
 
 class EmailService:
     def __init__(self):
-        # Resend API configuration
-        self.api_key = os.getenv("RESEND_API_KEY")
-        self.from_email = os.getenv("FROM_EMAIL", "onboarding@skreenit.com")
-        self.from_name = os.getenv("FROM_NAME", "Skreenit")
-        
-        # Resend Template IDs
-        self.templates = {
-            "verification": os.getenv("RESEND_TEMPLATE_VERIFICATION", "email-confirmation"),
-            "password_reset": os.getenv("RESEND_TEMPLATE_PASSWORD_RESET", "password-reset"),
-            "recruiter_welcome": os.getenv("RESEND_TEMPLATE_RECRUITER_WELCOME", "recruiter-welcome"),
-            "support": os.getenv("RESEND_TEMPLATE_SUPPORT", "support-template")
-        }
-        
-        # Initialize Resend
-        if self.api_key:
-            resend.api_key = self.api_key
-            logger.info(f"Resend API initialized for {self.from_email}")
+        self.smtp_host     = os.getenv("GMAIL_SMTP_HOST", "smtp.gmail.com")
+        self.smtp_port     = int(os.getenv("GMAIL_SMTP_PORT", "587"))
+        self.smtp_user     = os.getenv("GMAIL_SMTP_USER")
+        self.smtp_password = os.getenv("GMAIL_SMTP_PASSWORD")
+        self.from_email    = os.getenv("FROM_EMAIL", self.smtp_user)
+        self.from_name     = os.getenv("FROM_NAME", "Skreenit")
+
+        if self.smtp_user and self.smtp_password:
+            logger.info(f"Gmail SMTP configured for {self.smtp_user}")
         else:
-            logger.error("RESEND_API_KEY not found in environment")
-    
-    async def send_verification_email(self, to_email, full_name, confirmation_url):
-        """Send verification email using Resend API with our template"""
-        try:
-            if not self.api_key:
-                return {"status": "error", "message": "Resend API key not configured"}
+            logger.error("GMAIL_SMTP_USER or GMAIL_SMTP_PASSWORD not set in environment")
 
-            logger.info(f"Sending verification email via Resend to {to_email}")
+    # ------------------------------------------------------------------
+    # Internal send helper (synchronous — called via executor)
+    # ------------------------------------------------------------------
 
-            # Get template path with fallback support
-            template_path = _get_template_path('welcome')
-            if not template_path:
-                logger.error("Verification email template not found")
-                return {"status": "error", "message": "Email template not found"}
+    def _send(self, to_email: str, subject: str, html_content: str) -> dict:
+        """Send a single HTML email over Gmail SMTP (STARTTLS on port 587)."""
+        msg = MIMEMultipart("alternative")
+        msg["Subject"] = subject
+        msg["From"]    = f"{self.from_name} <{self.from_email}>"
+        msg["To"]      = to_email
+        msg.attach(MIMEText(html_content, "html", "utf-8"))
 
+        with smtplib.SMTP(self.smtp_host, self.smtp_port) as server:
+            server.ehlo()
+            server.starttls()
+            server.login(self.smtp_user, self.smtp_password)
+            server.sendmail(self.from_email, to_email, msg.as_string())
+
+        return {"status": "success", "message": f"Email sent to {to_email}"}
+
+    async def _send_async(self, to_email: str, subject: str, html_content: str) -> dict:
+        """Run _send in a thread so async FastAPI routes are not blocked."""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self._send, to_email, subject, html_content)
+
+    # ------------------------------------------------------------------
+    # Template loader
+    # ------------------------------------------------------------------
+
+    def _load_template(self, template_name: str, variables: dict) -> str:
+        """Load branded HTML template; return inline fallback if file not found."""
+        template_path = _get_template_path(template_name)
+        if template_path:
             with open(template_path, 'r', encoding='utf-8') as f:
-                html_content = f.read()
+                html = f.read()
+            for key, value in variables.items():
+                html = html.replace(f'{{{{{key}}}}}', str(value))
+            logger.info(f"Using branded HTML template: {template_name}")
+            return html
 
-            # Replace template variables
-            html_content = html_content.replace('{{full_name}}', full_name)
-            html_content = html_content.replace('{{confirmation_url}}', confirmation_url)
+        logger.warning(f"Template '{template_name}' not found — using inline fallback")
+        return None  # caller builds its own fallback
 
-            params = {
-                "from": f"{self.from_name} <{self.from_email}>",
-                "to": [to_email],
-                "subject": "Verify Your Skreenit Account",
-                "html": html_content
-            }
+    # ------------------------------------------------------------------
+    # Public email methods
+    # ------------------------------------------------------------------
 
-            response = resend.Emails.send(params)
-            logger.info(f"Verification email sent via Resend! ID: {response.get('id')}")
-            return {"status": "success", "message": f"Email sent: {response.get('id')}"}
+    async def send_verification_email(self, to_email: str, full_name: str, confirmation_url: str) -> dict:
+        """Send account verification email."""
+        try:
+            if not self.smtp_user or not self.smtp_password:
+                return {"status": "error", "message": "Gmail SMTP credentials not configured"}
+
+            logger.info(f"Sending verification email to {to_email}")
+
+            html = self._load_template('welcome', {
+                'full_name': full_name,
+                'confirmation_url': confirmation_url,
+            })
+            if html is None:
+                html = f"""
+                <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px">
+                    <h2 style="color:#667eea">Welcome to Skreenit, {full_name}!</h2>
+                    <p>Please confirm your email address to activate your account:</p>
+                    <p style="margin:24px 0">
+                        <a href="{confirmation_url}"
+                           style="background:#667eea;color:#fff;padding:12px 24px;border-radius:5px;text-decoration:none;font-weight:bold">
+                            Confirm Your Email
+                        </a>
+                    </p>
+                    <p style="color:#888;font-size:13px">This link expires in 24 hours.</p>
+                </div>"""
+
+            return await self._send_async(to_email, "Verify Your Skreenit Account", html)
 
         except Exception as e:
-            logger.error(f"Resend error: {str(e)}")
+            logger.error(f"Verification email error: {str(e)}")
             return {"status": "error", "message": str(e)}
-    
-    async def send_password_reset_email(self, to_email, full_name, reset_url):
-        """Send password reset email using Resend API with our template"""
+
+    async def send_password_reset_email(self, to_email: str, full_name: str, reset_url: str) -> dict:
+        """Send password reset email."""
         try:
-            if not self.api_key:
-                return {"status": "error", "message": "Resend API key not configured"}
+            if not self.smtp_user or not self.smtp_password:
+                return {"status": "error", "message": "Gmail SMTP credentials not configured"}
 
-            logger.info(f"Sending password reset email via Resend to {to_email}")
+            logger.info(f"Sending password reset email to {to_email}")
 
-            # Get template path with fallback support
-            template_path = _get_template_path('password_reset')
-            if not template_path:
-                logger.error("Password reset email template not found")
-                return {"status": "error", "message": "Email template not found"}
+            html = self._load_template('password_reset', {
+                'full_name': full_name,
+                'reset_url': reset_url,
+            })
+            if html is None:
+                html = f"""
+                <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px">
+                    <h2 style="color:#667eea">Reset Your Skreenit Password</h2>
+                    <p>Hi {full_name},</p>
+                    <p>Click below to set a new password:</p>
+                    <p style="margin:24px 0">
+                        <a href="{reset_url}"
+                           style="background:#667eea;color:#fff;padding:12px 24px;border-radius:5px;text-decoration:none;font-weight:bold">
+                            Reset My Password
+                        </a>
+                    </p>
+                    <p style="color:#888;font-size:13px">This link expires in 1 hour.</p>
+                </div>"""
 
-            with open(template_path, 'r', encoding='utf-8') as f:
-                html_content = f.read()
-
-            # Replace template variables
-            html_content = html_content.replace('{{full_name}}', full_name)
-            html_content = html_content.replace('{{reset_url}}', reset_url)
-
-            params = {
-                "from": f"{self.from_name} <{self.from_email}>",
-                "to": [to_email],
-                "subject": "Reset Your Skreenit Password",
-                "html": html_content
-            }
-
-            response = resend.Emails.send(params)
-            logger.info(f"Password reset email sent via Resend! ID: {response.get('id')}")
-            return {"status": "success", "message": f"Email sent: {response.get('id')}"}
+            return await self._send_async(to_email, "Reset Your Skreenit Password", html)
 
         except Exception as e:
-            logger.error(f"Resend error: {str(e)}")
+            logger.error(f"Password reset email error: {str(e)}")
             return {"status": "error", "message": str(e)}
-    
-    async def send_support_email(self, to_email, subject, content):
-        """Send support email using Resend API"""
+
+    async def send_recruiter_welcome_email(self, to_email: str, full_name: str, company_id: str, login_url: str) -> dict:
+        """Send recruiter account welcome email."""
         try:
-            if not self.api_key:
-                return {"status": "error", "message": "Resend API key not configured"}
-            
-            params = {
-                "from": f"{self.from_name} Support <{self.from_email}>",
-                "to": [to_email],
-                "template_id": self.templates["support"],
-                "data": {
-                    "subject": subject,
-                    "content": content,
-                    "support_email": self.from_email
-                }
-            }
-            
-            response = resend.Emails.send(params)
-            logger.info(f"Support email sent via Resend! ID: {response.get('id')}")
-            return {"status": "success", "message": f"Email sent: {response.get('id')}"}
-            
-        except Exception as e:
-            logger.error(f"Resend error: {str(e)}")
-            return {"status": "error", "message": str(e)}
-    
-    async def send_notification_email(self, to_email, subject, content):
-        """Send notification email using Resend API with templates"""
-        try:
-            if not self.api_key:
-                return {"status": "error", "message": "Resend API key not configured"}
-            
-            params = {
-                "from": f"{self.from_name} <notifications@skreenit.com>",
-                "to": [to_email],
-                "template_id": self.templates["notification"],
-                "data": {
-                    "subject": subject,
-                    "content": content
-                }
-            }
-            
-            response = resend.Emails.send(params)
-            logger.info(f"Notification email sent via Resend! ID: {response.get('id')}")
-            return {"status": "success", "message": f"Email sent: {response.get('id')}"}
-            
-        except Exception as e:
-            logger.error(f"Resend error: {str(e)}")
-            return {"status": "error", "message": str(e)}
-    
-    async def send_recruiter_welcome_email(self, to_email, full_name, company_id, login_url):
-        """Send recruiter welcome email with login credentials using Resend API with our template"""
-        try:
-            if not self.api_key:
-                return {"status": "error", "message": "Resend API key not configured"}
+            if not self.smtp_user or not self.smtp_password:
+                return {"status": "error", "message": "Gmail SMTP credentials not configured"}
 
-            logger.info(f"Sending recruiter welcome email via Resend to {to_email}")
+            logger.info(f"Sending recruiter welcome email to {to_email}")
 
-            # Get template path with fallback support
-            template_path = _get_template_path('recruiter_welcome')
-            if not template_path:
-                logger.error("Recruiter welcome email template not found")
-                return {"status": "error", "message": "Email template not found"}
+            html = self._load_template('recruiter_welcome', {
+                'full_name': full_name,
+                'email': to_email,
+                'company_id': company_id,
+                'login_url': login_url,
+            })
+            if html is None:
+                html = f"""
+                <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px">
+                    <h2 style="color:#667eea">Your Recruiter Account is Ready, {full_name}!</h2>
+                    <ul style="line-height:2">
+                        <li><strong>Login Email:</strong> {to_email}</li>
+                        <li><strong>Company ID:</strong> {company_id}</li>
+                    </ul>
+                    <p style="margin:24px 0">
+                        <a href="{login_url}"
+                           style="background:#667eea;color:#fff;padding:12px 24px;border-radius:5px;text-decoration:none;font-weight:bold">
+                            Login to Your Account
+                        </a>
+                    </p>
+                </div>"""
 
-            with open(template_path, 'r', encoding='utf-8') as f:
-                html_content = f.read()
-
-            # Replace template variables
-            html_content = html_content.replace('{{full_name}}', full_name)
-            html_content = html_content.replace('{{email}}', to_email)
-            html_content = html_content.replace('{{company_id}}', company_id)
-            html_content = html_content.replace('{{login_url}}', login_url)
-
-            params = {
-                "from": f"{self.from_name} <{self.from_email}>",
-                "to": [to_email],
-                "subject": "Your Recruiter Account is Ready!",
-                "html": html_content
-            }
-
-            response = resend.Emails.send(params)
-            logger.info(f"Recruiter welcome email sent via Resend! ID: {response.get('id')}")
-            return {"status": "success", "message": f"Email sent: {response.get('id')}"}
+            return await self._send_async(to_email, "Your Recruiter Account is Ready!", html)
 
         except Exception as e:
-            logger.error(f"Resend error: {str(e)}")
+            logger.error(f"Recruiter welcome email error: {str(e)}")
             return {"status": "error", "message": str(e)}
-    
-    def test_resend_connectivity(self):
-        """Test if Resend API is working"""
+
+    async def send_support_email(self, to_email: str, subject: str, content: str) -> dict:
+        """Send support/notification email."""
         try:
-            if not self.api_key:
-                logger.error("Resend API key not configured")
-                return False
-            logger.info("Resend API key configured")
+            if not self.smtp_user or not self.smtp_password:
+                return {"status": "error", "message": "Gmail SMTP credentials not configured"}
+
+            html = f"""
+            <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px">
+                <h2 style="color:#667eea">{subject}</h2>
+                <div>{content}</div>
+                <p style="color:#888;font-size:12px;margin-top:20px">
+                    Need help? Reply to this email or contact {self.from_email}
+                </p>
+            </div>"""
+
+            return await self._send_async(to_email, subject, html)
+
+        except Exception as e:
+            logger.error(f"Support email error: {str(e)}")
+            return {"status": "error", "message": str(e)}
+
+    async def send_notification_email(self, to_email: str, subject: str, content: str) -> dict:
+        """Send general notification email."""
+        return await self.send_support_email(to_email, subject, content)
+
+    def test_smtp_connectivity(self) -> bool:
+        """Verify Gmail SMTP credentials are reachable."""
+        try:
+            with smtplib.SMTP(self.smtp_host, self.smtp_port) as server:
+                server.ehlo()
+                server.starttls()
+                server.login(self.smtp_user, self.smtp_password)
+            logger.info("Gmail SMTP connectivity test passed")
             return True
         except Exception as e:
-            logger.error(f"Resend connectivity test failed: {str(e)}")
+            logger.error(f"Gmail SMTP connectivity test failed: {str(e)}")
             return False

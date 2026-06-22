@@ -137,7 +137,6 @@ async def root_page():
             <body style="font-family: sans-serif; text-align: center; padding: 50px;">
                 <h2>Skreenit Local Server API</h2>
                 <p>Running on Machine Xeon E-2276M + 64GB RAM + Quadro T2000</p>
-                <p>Mode: {ENV}</p>
             </body>
         </html>
         """)
@@ -158,7 +157,6 @@ async def root_page():
             <body style="font-family: sans-serif; text-align: center; padding: 50px;">
                 <h2>Skreenit Local Server API</h2>
                 <p>Running on Machine Xeon E-2276M + 64GB RAM + Quadro T2000</p>
-                <p>Mode: {ENV}</p>
                 <p>Template Error: {str(e)}</p>
             </body>
         </html>

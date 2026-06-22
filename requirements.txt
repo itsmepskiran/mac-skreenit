@@ -18,7 +18,7 @@ torchaudio==2.4.0+cu124
 # CORE BACKEND
 # =============================================================================
 fastapi==0.115.0
-starlette==0.41.3
+starlette==0.38.2
 uvicorn[standard]==0.30.0
 httpx==0.25.2
 python-dotenv==1.0.1
@@ -47,7 +47,6 @@ charset-normalizer>=3.0.0
 # CLOUD & EMAIL
 # =============================================================================
 boto3==1.35.0
-resend==0.8.0
 razorpay==1.4.2
 
 # =============================================================================
@@ -118,14 +117,15 @@ ollama>=0.3.0
 # INDIAN LANGUAGE SUPPORT (Vernacular Language Processing)
 # =============================================================================
 # Whisper - Already included above, supports 99 languages including Indian languages
-# Additional Indian language specific libraries - Updated versions
-indic-nlp-library>=0.93  # Updated from 0.92
-deep-translator>=1.11.0  # Updated from 1.0.4
-SpeechRecognition>=3.10.0  # Already good version
-pydub>=0.25.1  # Already good version
-langdetect>=1.0.9  # Already good version
-indic-transliteration>=2.3.82  # Already good version
-language-tool-python>=2.8.0  # Updated from 2.7.1
+# Additional Indian language specific libraries:
+indic-nlp-library==0.92  # Text processing for Indian languages
+deep-translator==1.11.4  # Primary translation library (Google Translate, etc.)
+SpeechRecognition==3.10.0  # Additional speech recognition
+pydub==0.25.1  # Audio processing for language detection
+langdetect==1.0.9  # Language detection
+indic-transliteration==2.3.82  # Transliteration support
+# Note: Bhashini API access via HTTP requests (no official pip package)
+language-tool-python==2.7.1  # Grammar checking
 
 # =============================================================================
 # DOCUMENT PROCESSING
@@ -135,10 +135,6 @@ python-docx==1.1.2
 reportlab==4.2.2
 pdf2image==1.17.0
 pdfplumber==0.11.0
-# resumepy - Old/unmaintained package, commenting out as safer alternative exists
-# resumepy==1.0.0
-# Using spacy/textblob for resume parsing instead
-
 markitdown==0.0.1a2  # Microsoft's MarkItDown for document to Markdown conversion
 beautifulsoup4==4.12.3  # HTML parsing for resume template conversion
 

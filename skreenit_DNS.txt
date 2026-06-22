@@ -1,0 +1,73 @@
+;;
+;; Domain:     skreenit.com.
+;; Exported:   2026-06-22 10:13:16
+;;
+;; This file is intended for use for informational and archival
+;; purposes ONLY and MUST be edited before use on a production
+;; DNS server.  In particular, you must:
+;;   -- update the SOA record with the correct authoritative name server
+;;   -- update the SOA record with the contact e-mail address information
+;;   -- update the NS record(s) with the authoritative name servers for this domain.
+;;
+;; For further information, please consult the BIND documentation
+;; located on the following website:
+;;
+;; http://www.isc.org/
+;;
+;; And RFC 1035:
+;;
+;; http://www.ietf.org/rfc/rfc1035.txt
+;;
+;; Please note that we do NOT offer technical support for any use
+;; of this zone data, the BIND name server, or any other third-party
+;; DNS software.
+;;
+;; Use at your own risk.
+;; SOA Record
+skreenit.com	3600	IN	SOA	gannon.ns.cloudflare.com. dns.cloudflare.com. 2053378979 10000 2400 604800 3600
+
+;; NS Records
+skreenit.com.	86400	IN	NS	gannon.ns.cloudflare.com.
+skreenit.com.	86400	IN	NS	linda.ns.cloudflare.com.
+
+;; CAA Records
+skreenit.com.	1	IN	CAA	0 issue "letsencrypt.org"
+
+;; CNAME Records
+8baf1a96d0d19ffcc54b747011b22690.skreenit.com.	1	IN	CNAME	verify.bing.com. ; cf_tags=cf-proxied:false
+api.skreenit.com.	1	IN	CNAME	6e9c8968-cb0d-4981-892e-5c2710a9c125.cfargotunnel.com. ; cf_tags=cf-proxied:true
+applicant.skreenit.com.	1	IN	CNAME	applicant-aiskreenit.pages.dev. ; cf_tags=cf-proxied:true
+app.skreenit.com.	1	IN	CNAME	app-skreenit.pages.dev. ; cf_tags=cf-proxied:true
+assets.skreenit.com.	1	IN	CNAME	assets-aiskreenit.pages.dev. ; cf_tags=cf-proxied:true
+backend.skreenit.com.	1	IN	CNAME	6e9c8968-cb0d-4981-892e-5c2710a9c125.cfargotunnel.com. ; cf_tags=cf-proxied:true
+dashboard.skreenit.com.	1	IN	CNAME	dash-aiskreenit.pages.dev. ; cf_tags=cf-proxied:true
+db.skreenit.com.	1	IN	CNAME	6e9c8968-cb0d-4981-892e-5c2710a9c125.cfargotunnel.com. ; cf_tags=cf-proxied:true
+hrms.skreenit.com.	1	IN	CNAME	hrms-skreenit.pages.dev. ; cf_tags=cf-proxied:true
+in.skreenit.com.	1	IN	CNAME	in-skreenit.pages.dev. ; cf_tags=cf-proxied:true
+jobs.skreenit.com.	1	IN	CNAME	jobs-aiskreenit.pages.dev. ; cf_tags=cf-proxied:true
+login.skreenit.com.	1	IN	CNAME	login-aiskreenit.pages.dev. ; cf_tags=cf-proxied:true
+logs.skreenit.com.	1	IN	CNAME	6e9c8968-cb0d-4981-892e-5c2710a9c125.cfargotunnel.com. ; cf_tags=cf-proxied:true
+ollama.skreenit.com.	1	IN	CNAME	6e9c8968-cb0d-4981-892e-5c2710a9c125.cfargotunnel.com. ; cf_tags=cf-proxied:true
+php.skreenit.com.	1	IN	CNAME	6e9c8968-cb0d-4981-892e-5c2710a9c125.cfargotunnel.com. ; cf_tags=cf-proxied:true
+recruiter.skreenit.com.	1	IN	CNAME	recruiter-aiskreenit.pages.dev. ; cf_tags=cf-proxied:true
+skreenit.com.	1	IN	CNAME	aiskreenit.pages.dev. ; cf_tags=cf-proxied:true
+ssh.skreenit.com.	1	IN	CNAME	6e9c8968-cb0d-4981-892e-5c2710a9c125.cfargotunnel.com. ; cf_tags=cf-proxied:true
+storage.skreenit.com.	1	IN	CNAME	public.r2.dev. ; cf_tags=cf-proxied:true
+support.skreenit.com.	1	IN	CNAME	support-skreenit.pages.dev. ; cf_tags=cf-proxied:true
+vn3mqwji4rvbhxftf36jnf4iqullprlg._domainkey.skreenit.com.	1	IN	CNAME	vn3mqwji4rvbhxftf36jnf4iqullprlg.dkim.amazonses.com. ; cf_tags=cf-proxied:false
+vsimfanioz5yxgwtmznyau6efeeiuvsr._domainkey.skreenit.com.	1	IN	CNAME	vsimfanioz5yxgwtmznyau6efeeiuvsr.dkim.amazonses.com. ; cf_tags=cf-proxied:false
+www.skreenit.com.	1	IN	CNAME	aiskreenit.pages.dev. ; cf_tags=cf-proxied:true
+
+;; MX Records
+send.skreenit.com.	1	IN	MX	10 feedback-smtp.ap-northeast-1.amazonses.com.
+skreenit.com.	1	IN	MX	83 route3.mx.cloudflare.net.
+skreenit.com.	1	IN	MX	86 route2.mx.cloudflare.net.
+skreenit.com.	1	IN	MX	79 route1.mx.cloudflare.net.
+
+;; TXT Records
+cf2024-1._domainkey.skreenit.com.	1	IN	TXT	"v=DKIM1; h=sha256; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAiweykoi+o48IOGuP7GR3X0MOExCUDY/BCRHoWBnh3rChl7WhdyCxW3jgq1daEjPPqoi7sJvdg5hEQVsgVRQP4DcnQDVjGMbASQtrY4WmB1VebF+RPJB2ECPsEDTpeiI5ZyUAwJaVX7r6bznU67g7LvFq35yIo4sdlmtZGV+i0H4cpYH9+3JJ78k" "m4KXwaf9xUJCWF6nxeD+qG6Fyruw1Qlbds2r85U9dkNDVAS3gioCvELryh1TxKGiVTkg4wqHTyHfWsp7KD3WQHYJn0RyfJJu6YEmL77zonn7p2SRMvTMP3ZEXibnC9gz3nnhR6wcYL8Q7zXypKTMD58bTixDSJwIDAQAB"
+_dmarc.skreenit.com.	1	IN	TXT	"v=DMARC1; p=none; rua=mailto:57bc3e26493a46c2afc2e892be1cf2e4@dmarc-reports.cloudflare.net;"
+_github-pages-challenge-itsmepskiran.skreenit.com.	1	IN	TXT	"953c08045a35aa957551cc726c2ec0"
+resend._domainkey.skreenit.com.	1	IN	TXT	"p=MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDZYUD9LX8+Yk0Pf6mWVdq2BeLfqA2tXhqJE7/iaxaqm/Css4hWC0YTvOt6K/5FoNDguU1uLqIP2wG6iOWq6eTGgrXzGLqeW5InuQkyGl3xCS+kI8t7fVqA3B34XBYOtSHLRUm0fY5N3H0N0GKjJyLeBSCMUASogji/ssQnTroT2wIDAQAB"
+skreenit.com.	1	IN	TXT	"v=spf1 include:_spf.mx.cloudflare.net include:_spf.google.com include:spf.resend.com ~all include:spf1 include:amazonses.com ~all"
+skreenit.com.	3600	IN	TXT	"google-site-verification=fZi2DcbGvq14KQOIUlMsvZ8GIgjI4LP8ekGO15Barrs"

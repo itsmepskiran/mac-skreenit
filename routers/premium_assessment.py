@@ -23,24 +23,12 @@ from services.ollama_service import OllamaService
 from services.subscription_service import SubscriptionService
 from routers.assessment_formats import (
     build_sections, get_format_type, get_format_description,
-    MCQ_FALLBACK, TEXT_WRITING_SECTIONS, CODING_PROBLEMS,
-    VOICE_TEST_FORMATS, VOICE_SCENARIO_ITEMS,
 )
 
 logger = logging.getLogger(__name__)
 mysql_service = MySQLService()
 ollama_service = OllamaService()
 router = APIRouter(prefix="/premium", tags=["Premium Assessments"])
-
-
-def _has_hardcoded_content(key: str, fmt: str) -> bool:
-    """Return True if this assessment key already has hardcoded questions/sections."""
-    if fmt == 'mcq'           and key in MCQ_FALLBACK:           return True
-    if fmt == 'text_writing'  and key in TEXT_WRITING_SECTIONS:  return True
-    if fmt == 'coding_test'   and key in CODING_PROBLEMS:        return True
-    if fmt == 'voice_test'    and key in VOICE_TEST_FORMATS:     return True
-    if fmt == 'voice_scenario' and key in VOICE_SCENARIO_ITEMS:  return True
-    return False
 
 # Assessment metadata mapping (maps service_key to assessment details)
 ASSESSMENT_METADATA = {
@@ -535,6 +523,7 @@ async def get_assessment_questions(
     planId: Optional[str] = None,
     mode: Optional[str] = None,
     type: Optional[str] = None,
+    platform: Optional[str] = None,
     db: Session = Depends(get_db)
 ):
     """
@@ -593,33 +582,47 @@ async def get_assessment_questions(
         format_type = (db_plan.get("assessment_format") if db_plan else None) or get_format_type(assessment_key)
         logger.info(f"Loading assessment: key={assessment_key}, format={format_type}")
 
-        # Parse DB content first so we can decide whether Ollama is needed
-        db_content = None
-        if db_plan and db_plan.get("assessment_content"):
-            try:
-                db_content = json.loads(db_plan["assessment_content"])
-            except Exception:
-                pass
+        skills_str = metadata['skills'] if isinstance(metadata['skills'], str) else ', '.join(metadata['skills'])
 
-        # Try Ollama only when no hardcoded/DB content covers this key
+        # Sanitize platform value
+        allowed_platforms = {'python', 'javascript', 'typescript', 'java', 'cpp', 'go', 'sql'}
+        platform = platform.lower() if platform and platform.lower() in allowed_platforms else None
+
+        # Always attempt Ollama first — hardcoded content is the fallback when Ollama is unavailable
         ollama_questions = []
-        has_hardcoded = _has_hardcoded_content(assessment_key, format_type)
-        if not has_hardcoded and not db_content and ollama_service.is_ollama_available():
+        ollama_mcq = []
+        if ollama_service.is_ollama_available():
             try:
-                ollama_questions = ollama_service.generate_questions(
-                    assessment_name=metadata['name'],
-                    assessment_desc=metadata['description'],
-                    skills=metadata['skills'],
-                    num_questions=metadata.get('questions', 5),
-                    assessment_type=metadata.get('type', 'general')
-                )
+                if format_type == 'mcq':
+                    ollama_mcq = ollama_service.generate_mcq_questions(
+                        assessment_name=metadata['name'],
+                        assessment_desc=metadata['description'],
+                        skills=skills_str,
+                        num_questions=metadata.get('questions', 5),
+                    )
+                elif format_type == 'coding_test' and platform:
+                    # Use specialized coding challenge generator for platform-specific problems
+                    ollama_questions = ollama_service.generate_coding_challenge_questions(
+                        platform=platform,
+                        num_questions=metadata.get('questions', 3),
+                    )
+                else:
+                    ollama_questions = ollama_service.generate_questions(
+                        assessment_name=metadata['name'],
+                        assessment_desc=metadata['description'],
+                        skills=skills_str,
+                        num_questions=metadata.get('questions', 5),
+                        assessment_type=metadata.get('type', 'general'),
+                    )
             except Exception as e:
                 logger.warning(f"Ollama generation failed: {str(e)}")
 
         sections = build_sections(
-            assessment_key, metadata, ollama_questions or None,
+            assessment_key, metadata,
+            ollama_questions=ollama_questions or None,
             format_override=format_type,
-            content_override=db_content,
+            ollama_mcq=ollama_mcq or None,
+            platform=platform,
         )
         total_duration = sum(
             s.get('duration_per_item', 60) * len(s.get('items', []))
@@ -824,6 +827,71 @@ async def finish_assessment(
     except Exception as e:
         logger.error(f"Failed to finish assessment: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/typing-paragraph")
+async def get_typing_paragraph(
+    request: Request,
+    duration: int = 3,
+):
+    """
+    Return an Ollama-generated prose paragraph sized for a timed typing test.
+    duration: test length in minutes (clamped 1-10). No subscription gate —
+    gen_typing is a free-plan assessment.
+    """
+    duration = max(1, min(10, duration))
+    text = ollama_service.generate_typing_paragraph(duration)
+    return {
+        "ok": True,
+        "data": {
+            "paragraph": text,
+            "duration_minutes": duration,
+            "word_count": len(text.split()),
+        }
+    }
+
+
+_INTRO_FALLBACK_QUESTIONS = [
+    "Describe your key professional strengths and how they add value to a team.",
+    "Tell us about a challenge you have overcome and what you learned from it.",
+    "Where do you see yourself professionally in the next three to five years?",
+]
+
+@router.get("/video-intro-questions")
+async def get_video_intro_questions(request: Request):
+    """Return 4 video intro questions: 1 fixed + 3 Ollama-generated."""
+    user = getattr(request.state, 'user', None)
+    if not user:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    fixed = "Please introduce yourself — share your background, key skills, and what makes you unique."
+
+    extra: list = []
+    if ollama_service.is_ollama_available():
+        try:
+            raw = ollama_service.generate_questions(
+                assessment_name="Video Introduction",
+                assessment_desc="One-way video self-introduction for professional assessment",
+                skills="Communication, confidence, professional presentation, clarity",
+                num_questions=3,
+                assessment_type='general',
+            )
+            extra = [
+                (q.get('question') or q.get('text') or str(q)) if isinstance(q, dict) else str(q)
+                for q in raw
+            ][:3]
+        except Exception as e:
+            logger.warning(f"Ollama video intro generation failed: {e}")
+
+    while len(extra) < 3:
+        extra.append(_INTRO_FALLBACK_QUESTIONS[len(extra) % 3])
+
+    questions = [
+        {"index": 0, "text": fixed, "duration": 60},
+        *[{"index": i + 1, "text": q, "duration": 60} for i, q in enumerate(extra)],
+    ]
+
+    return {"ok": True, "data": {"questions": questions, "assessment_name": "Video Introduction"}}
 
 
 @router.get("/assessment-results/{session_id}")

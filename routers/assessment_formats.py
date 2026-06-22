@@ -638,12 +638,6 @@ MCQ_FALLBACK: Dict[str, List[Dict]] = {
         {'id': 'q3', 'content': 'Concrete curing is done to?', 'options': ['Maintain moisture for full hydration and strength development', 'Accelerate drying time', 'Add binding agents', 'Seal against rainwater'], 'correct': 0},
         {'id': 'q4', 'content': 'Material for waterproofing flat roofs?', 'options': ['Bituminous membrane or polyurethane waterproofing compound', 'Ordinary cement plaster', 'Sand mortar screed', 'Plain concrete'], 'correct': 0},
     ],
-    'mfg_safety': [
-        {'id': 'q1', 'content': 'PPE stands for?', 'options': ['Personal Protective Equipment', 'Production Process Engineering', 'Plant Preventive Equipment', 'Process Performance Evaluation'], 'correct': 0},
-        {'id': 'q2', 'content': 'First action if you spot a chemical spill?', 'options': ['Alert colleagues and follow emergency spill procedure', 'Clean it yourself', 'Ignore small spills', 'Report at end of shift'], 'correct': 0},
-        {'id': 'q3', 'content': 'LOTO (Lockout-Tagout) procedure is used to?', 'options': ['Safely de-energize machines before maintenance', 'Secure cabinets', 'Track production', 'Verify materials'], 'correct': 0},
-        {'id': 'q4', 'content': 'SDS (Safety Data Sheet) provides info about?', 'options': ['Hazardous chemicals and safe handling', 'Shift schedules', 'QC metrics', 'Production targets'], 'correct': 0},
-    ],
     # FREE / GENERAL PLAN MCQ ASSESSMENTS
     'gen_aptitude': [
         {'id': 'q1',  'content': 'If a train travels 240 km in 3 hours, what is its speed?',                                                          'options': ['80 km/h', '60 km/h', '90 km/h', '75 km/h'],                                   'correct': 0},
@@ -716,12 +710,24 @@ def get_format_description(format_type: str) -> str:
     return FORMAT_DESCRIPTIONS.get(format_type, 'Assessment')
 
 
+PLATFORM_STARTER_TEMPLATES: Dict[str, str] = {
+    'python':     '# Write your Python solution here\n\n\n',
+    'javascript': '// Write your JavaScript solution here\n\n\nconsole.log();\n',
+    'typescript': '// Write your TypeScript solution here\n\nfunction solve(input: any): any {\n    // Your code here\n}\n\nconsole.log(solve(undefined));\n',
+    'java':       'public class Solution {\n    public static void main(String[] args) {\n        // Write your Java solution here\n    }\n}\n',
+    'cpp':        '#include <iostream>\nusing namespace std;\n\nint main() {\n    // Write your C++ solution here\n    return 0;\n}\n',
+    'go':         'package main\n\nimport "fmt"\n\nfunc main() {\n    // Write your Go solution here\n    fmt.Println()\n}\n',
+    'sql':        '-- Write your SQL query here\n\nSELECT\n    \nFROM\n    \nWHERE\n    ;\n',
+}
+
+
 def build_sections(assessment_key: str, metadata: dict, ollama_questions: list = None,
-                   format_override: str = None, content_override: list = None) -> list:
+                   format_override: str = None, content_override: list = None,
+                   ollama_mcq: list = None, platform: str = None) -> list:
     fmt = format_override or get_format_type(assessment_key)
 
     if fmt == 'voice_test':
-        raw = content_override or VOICE_TEST_FORMATS.get(assessment_key, [])
+        raw = VOICE_TEST_FORMATS.get(assessment_key, [])
         sections = []
         for s in raw:
             sec = dict(s)
@@ -741,9 +747,15 @@ def build_sections(assessment_key: str, metadata: dict, ollama_questions: list =
         return sections
 
     elif fmt == 'voice_scenario':
-        items = content_override or VOICE_SCENARIO_ITEMS.get(assessment_key) or []
-        if not items and ollama_questions:
-            items = [{'id': f'sc{i}', 'content': q.get('question', str(q)), 'context': 'Scenario'} for i, q in enumerate(ollama_questions, 1)]
+        # Ollama-generated scenarios first; fall back to hardcoded, then generic
+        items = None
+        if ollama_questions:
+            items = [
+                {'id': f'sc{i}', 'content': q.get('question', str(q)), 'context': 'Scenario'}
+                for i, q in enumerate(ollama_questions, 1)
+            ]
+        if not items:
+            items = VOICE_SCENARIO_ITEMS.get(assessment_key) or []
         if not items:
             items = [
                 {'id': 'sc1', 'content': 'You are dealing with a challenging situation in your professional role. Describe how you would handle it.', 'context': 'Professional Scenario'},
@@ -760,29 +772,71 @@ def build_sections(assessment_key: str, metadata: dict, ollama_questions: list =
         }]
 
     elif fmt == 'text_writing':
-        return content_override or TEXT_WRITING_SECTIONS.get(assessment_key) or [{
+        # Ollama-generated prompts first; fall back to hardcoded, then generic
+        if ollama_questions:
+            return [{
+                'id': 's_writing',
+                'title': metadata.get('name', 'Writing Assessment'),
+                'instruction': 'Write a clear, professional response for each prompt.',
+                'exercise_type': 'text_response',
+                'format_hint': 'Be specific, well-structured, and use professional language.',
+                'duration_per_item': 300,
+                'items': [
+                    {'id': f'w{i}', 'content': q.get('question', str(q))}
+                    for i, q in enumerate(ollama_questions, 1)
+                ],
+            }]
+        hardcoded = TEXT_WRITING_SECTIONS.get(assessment_key)
+        if hardcoded:
+            return hardcoded
+        return [{
             'id': 's_writing',
             'title': metadata.get('name', 'Writing Assessment'),
             'instruction': 'Write a clear, professional response for each prompt.',
             'exercise_type': 'text_response',
             'format_hint': 'Be specific and well-structured.',
             'duration_per_item': 300,
-            'items': [
-                {'id': f'w{i}', 'content': q.get('question', str(q))}
-                for i, q in enumerate(ollama_questions or [], 1)
-            ] or [{'id': 'w1', 'content': f'Describe your approach to {metadata.get("name", "this subject")} in a professional context. Be specific with examples.'}],
+            'items': [{'id': 'w1', 'content': f'Describe your approach to {metadata.get("name", "this subject")} in a professional context. Be specific with examples.'}],
         }]
 
     elif fmt == 'coding_test':
-        problems = content_override or CODING_PROBLEMS.get(assessment_key) or []
+        problems = None
+
+        # When platform is specified and Ollama produced questions, build structured problems
+        if platform and ollama_questions:
+            starter = PLATFORM_STARTER_TEMPLATES.get(platform, '# Write your solution here\n')
+            problems = [
+                {
+                    'id': f'p{i}',
+                    'content': q.get('question', q.get('content', f'Challenge {i}')),
+                    'language': platform,
+                    'starter_code': starter,
+                }
+                for i, q in enumerate(ollama_questions, 1)
+            ]
+
+        # Fall back to hardcoded problems (prefer platform-specific key, then generic)
         if not problems:
-            lang = ('sql' if 'sql' in assessment_key else
+            platform_key = f"{assessment_key}_{platform}" if platform else assessment_key
+            problems = CODING_PROBLEMS.get(platform_key) or CODING_PROBLEMS.get(assessment_key) or []
+
+        # If still empty, generate a generic placeholder
+        if not problems:
+            lang = platform or ('sql' if 'sql' in assessment_key else
                     'javascript' if ('js' in assessment_key or 'react' in assessment_key) else
                     'text' if 'design' in assessment_key else 'python')
-            problems = [{'id': 'p1', 'content': f'Solve the {metadata.get("name", "coding")} challenge below. Show your reasoning.', 'language': lang, 'starter_code': '# Write your solution here\n'}]
+            starter = PLATFORM_STARTER_TEMPLATES.get(lang, '# Write your solution here\n')
+            problems = [{'id': 'p1', 'content': f'Solve the {metadata.get("name", "coding")} challenge below. Show your reasoning.', 'language': lang, 'starter_code': starter}]
+
+        # Ensure all problems carry the chosen platform language and starter code
+        if platform:
+            starter = PLATFORM_STARTER_TEMPLATES.get(platform, problems[0].get('starter_code', '# Write here\n'))
+            problems = [{**p, 'language': platform, 'starter_code': p.get('starter_code', starter) if p.get('platform') == platform else starter} for p in problems]
+
+        lang_label = (platform or problems[0].get('language', 'code')).upper()
         return [{
             'id': 's_coding',
-            'title': metadata.get('name', 'Coding Challenge'),
+            'title': f'{metadata.get("name", "Coding Challenge")} — {lang_label}',
             'instruction': 'Read each problem carefully. Write clean, working code. Add comments to explain your approach.',
             'exercise_type': 'code',
             'duration_per_item': 1800,
@@ -790,12 +844,8 @@ def build_sections(assessment_key: str, metadata: dict, ollama_questions: list =
         }]
 
     else:  # mcq
-        questions = content_override or MCQ_FALLBACK.get(assessment_key) or []
-        if not questions and ollama_questions:
-            questions = [
-                {'id': f'q{i}', 'content': q.get('question', str(q)), 'options': ['Option A', 'Option B', 'Option C', 'Option D'], 'correct': 0}
-                for i, q in enumerate(ollama_questions, 1)
-            ]
+        # Prefer Ollama MCQ (with real options); fall back to hardcoded, then generic
+        questions = ollama_mcq or MCQ_FALLBACK.get(assessment_key) or []
         if not questions:
             questions = [
                 {'id': f'q{i}', 'content': f'Question {i}: Which option best demonstrates knowledge of {metadata.get("name", "this subject")}?',

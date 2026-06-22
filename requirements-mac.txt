@@ -10,15 +10,15 @@
 # Mac will auto-detect Metal acceleration on Apple Silicon
 # Updated for compatibility: PyTorch 2.4.0 LTS
 # =============================================================================
-torch==2.4.0
-torchvision==0.19.0
-torchaudio==2.4.0
+torch==2.7.0
+torchvision==0.22.0
+torchaudio==2.7.0
 
 # =============================================================================
 # CORE BACKEND
 # =============================================================================
 fastapi==0.115.0
-starlette==0.41.3
+starlette==0.38.2
 uvicorn[standard]==0.30.0
 httpx==0.25.2
 python-dotenv==1.0.1
@@ -56,12 +56,11 @@ razorpay==1.4.2
 # Whisper (OpenAI) - Speech recognition
 git+https://github.com/openai/whisper.git
 
-# CPU-based ONNX Runtime (Mac compatible) - Latest stable
+# CPU-based ONNX Runtime (Mac compatible)
 onnxruntime==1.27.0
-protobuf>=3.20.0  # Required by ONNX Runtime
 
 # MediaPipe - Face detection, pose estimation (works on CPU on Mac)
-mediapipe==0.10.14
+mediapipe==0.10.35
 
 # OpenCV - CPU version (headless not needed for development)
 opencv-python==4.10.0.84
@@ -91,7 +90,7 @@ git+https://github.com/deepinsight/insightface.git#subdirectory=python-package
 textblob==0.18.0.post0
 nltk==3.8.1
 textstat==0.7.3
-scipy>=1.14.0  # Updated: 1.12.0 has wheel issues on Mac ARM64, 1.14.0+ has wheels
+scipy>=1.14.0
 soundfile==0.11.0
 eng-to-ipa==0.0.2
 numpy==1.26.4  # Pinned for compatibility with all packages
@@ -118,27 +117,24 @@ ollama>=0.3.0
 # INDIAN LANGUAGE SUPPORT (Vernacular Language Processing)
 # =============================================================================
 # Whisper - Already included above, supports 99 languages including Indian languages
-# Additional Indian language specific libraries - Updated versions
-indic-nlp-library>=0.93  # Updated from 0.92
-deep-translator>=1.11.0  # Updated from 1.0.4
-SpeechRecognition>=3.10.0  # Already good version
-pydub>=0.25.1  # Already good version
-langdetect>=1.0.9  # Already good version
-indic-transliteration>=2.3.82  # Already good version
-language-tool-python>=2.8.0  # Updated from 2.7.1
+# Additional Indian language specific libraries:
+indic-nlp-library==0.92  # Text processing for Indian languages
+deep-translator==1.11.4  # Primary translation library (Google Translate, etc.)
+SpeechRecognition==3.10.0  # Additional speech recognition
+pydub==0.25.1  # Audio processing for language detection
+langdetect==1.0.9  # Language detection
+indic-transliteration==2.3.82  # Transliteration support
+# Note: Bhashini API access via HTTP requests (no official pip package)
+language-tool-python==2.7.1  # Grammar checking
 
 # =============================================================================
 # DOCUMENT PROCESSING
 # =============================================================================
-PyMuPDF==1.24.9
+PyMuPDF==1.25.0
 python-docx==1.1.2
 reportlab==4.2.2
 pdf2image==1.17.0
 pdfplumber==0.11.0
-# resumepy - Old/unmaintained package, commenting out as safer alternative exists
-# resumepy==1.0.0
-# Using spacy/textblob for resume parsing instead
-
 markitdown==0.0.1a2  # Microsoft's MarkItDown for document to Markdown conversion
 beautifulsoup4==4.12.3  # HTML parsing for resume template conversion
 
@@ -152,7 +148,7 @@ pyyaml>=6.0  # Added - required by many packages
 # PERFORMANCE OPTIMIZATION (for Mac with multiple cores)
 # =============================================================================
 # Ray - Distributed computing (can utilize all CPU cores)
-ray>=2.35.0  # Updated to allow newer versions
+ray==2.45.0
 
 # Numba - JIT compilation for Python
 numba>=0.60.0  # Updated to allow newer versions
