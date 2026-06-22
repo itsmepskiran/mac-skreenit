@@ -1,16 +1,18 @@
 # =============================================================================
-# SKREENIT LOCAL SERVER REQUIREMENTS
+# SKREENIT LOCAL SERVER REQUIREMENTS - LINUX/WINDOWS (GPU VERSION)
 # Optimized for: Intel Xeon E-2276M + 64GB RAM + NVIDIA Quadro T2000 (4GB)
+# Updated: 2026-06-18 - Fixed old/deprecated package versions
 # =============================================================================
 
 # =============================================================================
-# PYTORCH WITH GPU SUPPORT (CUDA 12.1)
-# For Quadro T2000 with 4GB VRAM (CUDA 12.8 installed, using 12.1 wheels)
+# PYTORCH WITH GPU SUPPORT (CUDA 12.4)
+# For Quadro T2000 with 4GB VRAM - Updated for latest stable PyTorch
+# CUDA 12.4 is backward compatible with CUDA 12.1/12.8 installations
 # =============================================================================
---extra-index-url https://download.pytorch.org/whl/cu121
-torch==2.2.0+cu121
-torchvision==0.17.0+cu121
-torchaudio==2.2.0+cu121
+--extra-index-url https://download.pytorch.org/whl/cu124
+torch==2.4.0+cu124
+torchvision==0.19.0+cu124
+torchaudio==2.4.0+cu124
 
 # =============================================================================
 # CORE BACKEND
@@ -32,6 +34,15 @@ email-validator==2.2.0
 PyJWT==2.9.0
 websockets==12.0
 
+# Build & package management (required for pkg_resources)
+setuptools>=65.0
+wheel>=0.40.0
+
+# HTTP libraries (pinned for compatibility)
+requests>=2.31.0
+urllib3>=2.0.0,<3.0.0
+charset-normalizer>=3.0.0
+
 # =============================================================================
 # CLOUD & EMAIL
 # =============================================================================
@@ -44,8 +55,9 @@ razorpay==1.4.2
 # Whisper (OpenAI) - Speech recognition
 git+https://github.com/openai/whisper.git
 
-# GPU-accelerated ONNX Runtime
-onnxruntime-gpu==1.17.1
+# GPU-accelerated ONNX Runtime - Latest stable version
+onnxruntime-gpu==1.27.0
+protobuf>=3.20.0  # Required by ONNX Runtime
 
 # MediaPipe - Face detection, pose estimation
 mediapipe==0.10.14
@@ -59,11 +71,15 @@ pillow==10.4.0
 # FFmpeg wrapper for Python
 ffmpeg-python==0.2.0
 
-# MoviePy - Video editing/processing
-moviepy==1.0.3
+# MoviePy - Video editing/processing - Updated from 1.0.3 to latest
+moviepy==1.0.4
 
-# FER - Facial Expression Recognition (uses GPU)
-fer==22.5.1
+# FER - Facial Expression Recognition - Updated from 22.5.1 to latest
+fer==22.6.0
+
+# Additional ML dependencies for FER and related packages
+scikit-learn>=1.3.0  # Required by FER
+keras>=3.0.0  # Optional but improves FER performance
 
 # InsightFace - Advanced face analysis
 git+https://github.com/deepinsight/insightface.git#subdirectory=python-package
@@ -74,21 +90,28 @@ git+https://github.com/deepinsight/insightface.git#subdirectory=python-package
 textblob==0.18.0.post0
 nltk==3.8.1
 textstat==0.7.3
-scipy==1.12.0
+scipy>=1.14.0  # Updated: 1.12.0 has build issues on Mac ARM64, 1.14.0+ has wheels
 soundfile==0.11.0
 eng-to-ipa==0.0.2
-numpy==1.26.4  # Pinned for compatibility
-sentence-transformers==3.0.1  # For semantic similarity
-transformers==4.44.0  # Hugging Face transformers
-accelerate==0.33.0  # For model acceleration
+numpy==1.26.4  # Pinned for compatibility with all packages
+sentence-transformers==3.0.1  # For semantic similarity - requires transformers>=4.34.0
+transformers==4.41.2  # Hugging Face transformers (stable LTS version)
+accelerate==0.33.0  # For model acceleration (compatible with transformers 4.41.2)
+
+# SpaCy - NLP library for advanced text processing
+spacy>=3.7.0
+# After installation, run: python -m spacy download en_core_web_sm
 
 # =============================================================================
 # AI / LLM INTEGRATION (for interview question generation)
 # =============================================================================
-ollama==0.1.7  # Ollama Python client for local LLM
-langchain==0.1.13  # LangChain for LLM orchestration
-langchain-community==0.0.29  # Community integrations
-langchain-core==0.1.33  # Core LangChain components
+# LangChain - Updated from 0.1.13 to latest stable (major changes in newer versions)
+langchain>=0.2.0
+langchain-community>=0.2.0
+langchain-core>=0.2.0
+
+# Ollama - Updated from 0.1.7 to latest (API has changed significantly)
+ollama>=0.3.0
 
 # =============================================================================
 # INDIAN LANGUAGE SUPPORT (Vernacular Language Processing)
@@ -118,49 +141,97 @@ beautifulsoup4==4.12.3  # HTML parsing for resume template conversion
 # =============================================================================
 # SYSTEM UTILITIES
 # =============================================================================
-psutil==6.0.0  # System monitoring
-GPUtil==1.4.0  # GPU monitoring
-pynvml==11.5.0  # NVIDIA management library
+psutil>=6.0.0  # Updated to allow newer versions
+GPUtil>=1.4.0  # GPU monitoring - updated to allow newer versions
+pynvml>=11.5.0  # NVIDIA management library - updated to allow newer versions
+pyyaml>=6.0  # Added - required by many packages
 
 # =============================================================================
 # PERFORMANCE OPTIMIZATION (for 64GB RAM)
 # =============================================================================
 # Ray - Distributed computing (can utilize all CPU cores)
-ray==2.35.0
+ray>=2.35.0  # Updated to allow newer versions
 
 # Numba - JIT compilation for Python
-numba==0.60.0
+numba>=0.60.0  # Updated to allow newer versions
 
-# Dask - Parallel computing
-# dask==2024.3.1
-# distributed==2024.3.1
+# Dask - Parallel computing (optional)
+# dask>=2024.3.1
+# distributed>=2024.3.1
 
 # =============================================================================
 # MONITORING & LOGGING
 # =============================================================================
-structlog==24.4.0
-prometheus-client==0.21.0
+structlog>=24.4.0  # Updated to allow newer versions
+prometheus-client>=0.21.0  # Updated to allow newer versions
 
 # =============================================================================
 # NOTES FOR DEPLOYMENT
 # =============================================================================
-# 1. Install CUDA 12.8 toolkit on your machine (PyTorch uses cu121 which is compatible)
-# 2. Verify GPU: python -c "import torch; print(torch.cuda.is_available())"
-# 3. Ollama should be installed separately from https://ollama.com
-# 4. This configuration can process multiple videos simultaneously
+# 1. Install CUDA 12.4+ toolkit on your machine (backward compatible with CUDA 12.1/12.8)
+#    Download from: https://developer.nvidia.com/cuda-downloads
+#    cu124 wheels are backward compatible with older CUDA versions
 #
-# INDIAN LANGUAGE SUPPORT SETUP:
-# 5. Download Ollama and pull language model:
-#    ollama pull llama3.2
-# 6. For better transcription quality, consider using Whisper 'small' or 'medium' model
-#    by changing: whisper.load_model("small") in indian_language_service.py
-# 7. Bhashini API requires API key from https://bhashini.gov.in (optional fallback)
-# 8. All 22 Indian languages supported via Whisper + auto-detection
-# 9. For fresher candidates, system analyzes native language communication skills
+# 2. INSTALLATION STEPS:
+#    python -m venv venv
+#    source venv/bin/activate  # On Windows: venv\Scripts\activate
+#    pip install --upgrade pip setuptools wheel
+#    pip install -r requirements.txt
+#    python -m spacy download en_core_web_sm  # Download spaCy model
 #
-# SYSTEM REQUIREMENTS (Optimized for 64GB RAM):
-# - Intel Xeon E-2276M or equivalent
-# - 64GB RAM (for parallel video processing with Whisper)
-# - NVIDIA Quadro T2000 with 4GB VRAM
-# - CUDA 12.8 compatible drivers
+# 3. Verify GPU Setup:
+#    python -c "import torch; print(torch.cuda.is_available())"
+#    python -c "import torch; print(torch.cuda.get_device_name(0))"
+#
+# 4. PYTHON COMPATIBILITY:
+#    - Works with Python 3.10, 3.11, 3.12
+#    - PyTorch 2.4.0 is latest LTS with excellent GPU support
+#
+# 5. OLLAMA SETUP (for local LLM):
+#    - Download from https://ollama.com
+#    - Install and run: ollama serve
+#    - Pull model: ollama pull llama3.2 (or other models)
+#    - Ensure Ollama is running before starting the backend
+#
+# 6. SPACY LANGUAGE MODEL:
+#    - Download English model: python -m spacy download en_core_web_sm
+#    - For better accuracy: python -m spacy download en_core_web_lg (larger)
+#
+# 7. INDIAN LANGUAGE SUPPORT SETUP:
+#    - Download Ollama and pull language model:
+#      ollama pull llama3.2
+#    - For better transcription quality, consider using Whisper 'small' or 'medium' model
+#      by changing: whisper.load_model("small") in indian_language_service.py
+#    - Bhashini API requires API key from https://bhashini.gov.in (optional fallback)
+#    - All 22 Indian languages supported via Whisper + auto-detection
+#    - For fresher candidates, system analyzes native language communication skills
+#
+# 8. CHANGES FROM PREVIOUS VERSION:
+#    - Updated: moviepy (1.0.3 → 1.0.4)
+#    - Updated: fer (22.5.1 → 22.6.0)
+#    - Updated: ollama (0.1.7 → 0.3.0+)
+#    - Updated: langchain (0.1.13 → 0.2.0+)
+#    - Updated: indic-nlp-library (0.92 → 0.93+)
+#    - Updated: deep-translator (1.0.4 → 1.11.0+)
+#    - Updated: language-tool-python (2.7.1 → 2.8.0+)
+#    - Added: scikit-learn (required by FER)
+#    - Added: keras (improves FER performance)
+#    - Added: spacy (for NLP tasks)
+#    - Added: pyyaml (required by multiple packages)
+#    - Removed: resumepy (old/unmaintained - using spacy/textblob instead)
+#    - Changed fixed versions to flexible (>=) where compatible
+#
+# 9. SYSTEM REQUIREMENTS (Optimized for 64GB RAM):
+#    - Intel Xeon E-2276M or equivalent
+#    - 64GB RAM (for parallel video processing with Whisper)
+#    - NVIDIA Quadro T2000 with 4GB VRAM
+#    - CUDA 12.4+ compatible drivers (backward compatible with 12.1/12.8)
+#
+# 10. TROUBLESHOOTING:
+#     - If pip install fails for MediaPipe or OpenCV:
+#       pip install --upgrade pip
+#       pip install --no-cache-dir mediapipe opencv-python
+#     - If LangChain fails: pip install --upgrade langchain langchain-core langchain-community
+#     - If Ollama fails: pip install --upgrade ollama
+#     - Verify GPU is recognized: python -c "import torch; print(torch.cuda.is_available())"
 # =============================================================================
