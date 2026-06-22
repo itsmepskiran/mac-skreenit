@@ -167,13 +167,15 @@ class AuthService:
             confirmation_link = f"{base_url}/confirm-email.html?token={token}&email={user['email']}"
             full_name = user.get('full_name', 'User')
             
-            # Send verification email 
+            # Send verification email
             email_service = EmailService()
-            await email_service.send_verification_email(
+            result = await email_service.send_verification_email(
                 to_email=user['email'],
                 full_name=full_name,
                 confirmation_url=confirmation_link
             )
+            if result.get("status") == "error":
+                raise ValueError(result.get("message", "Failed to send verification email"))
             logger.info("Verification email sent successfully")
         except Exception as e:
             logger.error(f"Failed to send verification email: {str(e)}")
