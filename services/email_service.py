@@ -17,10 +17,16 @@ def _get_template_path(template_name: str) -> Optional[str]:
     Returns:
         Full path to template file or None if not found
     """
-    base_paths = [
-        Path(__file__).parent.parent / 'assets' / 'templates',
-        Path(__file__).parent.parent.parent / 'Skreenit_App' / 'assets' / 'templates',
+    base_paths = []
+
+    # Highest priority: explicit env var pointing to wherever sql-skreenit lives on this machine
+    env_path = os.getenv("EMAIL_TEMPLATES_PATH")
+    if env_path:
+        base_paths.append(Path(env_path))
+
+    base_paths += [
         Path(__file__).parent.parent.parent / 'sql-skreenit' / 'assets' / 'templates',
+        Path(__file__).parent.parent.parent / 'Skreenit_App' / 'assets' / 'templates',
         Path.home() / 'Skreenit_App' / 'assets' / 'templates',
     ]
 
