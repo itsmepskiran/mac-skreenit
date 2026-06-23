@@ -39,7 +39,7 @@ class OllamaService:
     def is_ollama_available(self) -> bool:
         """Check if Ollama server is running AND has at least one model loaded."""
         try:
-            response = requests.get(f"{self.base_url}/api/tags", timeout=2)
+            response = requests.get(f"{self.base_url}/api/tags", timeout=10)
             if response.status_code != 200:
                 return False
             data = response.json()
@@ -448,6 +448,57 @@ Problems:"""
         """Clear the question cache"""
         self.cache.clear()
         logger.info("Question cache cleared")
+
+    def generate_interview_questions(self, resume_text: str, num_questions: int = 3) -> Optional[List[str]]:
+        """Generate personalised interview questions from a candidate's resume text.
+        Returns a plain list of question strings, or None if Ollama is unavailable."""
+        if not self.is_ollama_available():
+            logger.warning("Ollama not available — skipping resume-based question generation")
+            return None
+
+        model = self._resolve_model('general')
+        if not model:
+            return None
+
+        prompt = f"""You are an expert HR interviewer. Read the candidate's resume below and generate exactly {num_questions} personalised interview questions.
+
+Resume:
+{resume_text[:4000]}
+
+Rules:
+- Each question must be specific to this candidate's actual experience, skills, or background shown in the resume
+- Do NOT ask generic questions like "tell me about yourself" or "why do you want this job"
+- Questions should be open-ended and answerable in 60-90 seconds
+- Output ONLY the {num_questions} questions as a numbered list, one per line, nothing else
+
+Questions:"""
+
+        try:
+            url = f"{self.base_url}/api/generate"
+            response = requests.post(
+                url,
+                json={"model": model, "prompt": prompt, "stream": False, "temperature": 0.7},
+                timeout=60,
+            )
+            response.raise_for_status()
+            raw = response.json().get("response", "")
+            questions = []
+            for line in raw.split("\n"):
+                line = line.strip()
+                if not line or len(line) < 10:
+                    continue
+                # Strip leading numbering
+                if line[0].isdigit():
+                    line = line.lstrip("0123456789.) ").strip()
+                if line and len(line) > 10:
+                    questions.append(line)
+                if len(questions) >= num_questions:
+                    break
+            logger.info(f"Generated {len(questions)} resume-based interview questions")
+            return questions if questions else None
+        except Exception as e:
+            logger.error(f"generate_interview_questions failed: {e}")
+            return None
 
     def generate_questions_from_jd(self, jd_text: str, num_questions: int = 8) -> List[Dict[str, Any]]:
         """Generate interview questions from job description using Ollama"""

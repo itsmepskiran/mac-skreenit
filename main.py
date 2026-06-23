@@ -245,6 +245,9 @@ TIMEOUT_EXCLUDED_PATHS = {
     "/api/v1/analytics/reanalyze",
     "/api/v1/analytics/analyze-video",
     "/api/v1/analytics/analyze-video-response",
+    # AI generation endpoints manage their own timeouts internally
+    "/api/v1/applicant/generate-interview-questions",
+    "/api/v1/applicant/job-sample-questions",
 }
 
 class TimeoutMiddleware(BaseHTTPMiddleware):

@@ -1642,28 +1642,14 @@ def parse_resume_text(file: UploadFile) -> str:
         logger.error(f"Resume parsing failed: {str(e)}")
         raise HTTPException(status_code=400, detail=f"Failed to parse resume: {str(e)}")
 
-async def generate_questions_with_ollama(resume_text: str) -> List[str]:
-    """Generate personalized interview questions using Ollama (centralized service)."""
-    
-    try:
-        logger.info(f"[OLLAMA_DEBUG] Starting question generation. Resume text length: {len(resume_text)}")
-        logger.info(f"[OLLAMA_DEBUG] Resume text preview: {resume_text[:200]}...")
-        
-        # Uses llama3.2 (primary) → mistral → llama3 (fallbacks)
-        questions = ollama_service.generate_interview_questions(resume_text)
-        
-        logger.info(f"[OLLAMA_DEBUG] Ollama returned: {questions}")
-        
-        if questions is None:
-            logger.error("[OLLAMA_DEBUG] Ollama returned None - checking service health")
-            # Check if Ollama service is available
-            available_models = ollama_service.get_available_models()
-            logger.error(f"[OLLAMA_DEBUG] Available models: {available_models}")
-        
-        return questions
-    except Exception as e:
-        logger.error(f"[OLLAMA_DEBUG] Ollama question generation failed with exception: {str(e)}", exc_info=True)
-        return None
+FALLBACK_QUESTIONS = [
+    "Please introduce yourself in 30 seconds.",
+    "What are your key skills and strengths that make you a great candidate?",
+    "Why are you interested in this position and what are your career goals?"
+]
+
+def _fallback_response(reason: str):
+    return {"ok": True, "data": {"questions": FALLBACK_QUESTIONS, "source": "fallback", "reason": reason}}
 
 @router.post("/generate-interview-questions")
 async def generate_interview_questions(
@@ -1671,89 +1657,77 @@ async def generate_interview_questions(
     resume: UploadFile = File(...)
 ):
     """Generate personalized interview questions from uploaded resume using AI."""
-    # Temporarily remove auth for debugging
-    # ensure_permission(request, "applications:create")
-    
+    import asyncio
+
     try:
         user = get_user_from_request(request)
         user_id = user.get("id", "unknown") if user else "unknown"
-        
         logger.info(f"Generating interview questions for resume: {resume.filename}, user: {user_id}")
-        
+
         # Validate file type
         allowed_extensions = ['.pdf', '.docx', '.doc']
         file_ext = os.path.splitext(resume.filename)[1].lower()
         if file_ext not in allowed_extensions:
-            raise HTTPException(
-                status_code=400, 
-                detail=f"Invalid file type. Allowed: {', '.join(allowed_extensions)}"
-            )
-        
-        # Parse resume text
-        resume_text = parse_resume_text(resume)
-        
+            raise HTTPException(status_code=400, detail=f"Invalid file type. Allowed: {', '.join(allowed_extensions)}")
+
+        # Run Ollama availability check in a thread — it's a synchronous requests.get call
+        # and must NOT block the async event loop
+        is_available = await asyncio.to_thread(ollama_service.is_ollama_available)
+        if not is_available:
+            logger.warning("Ollama not available — returning fallback questions without parsing resume")
+            return _fallback_response("Ollama not available")
+
+        # Read file bytes in the async context (UploadFile.read() is async)
+        file_bytes = await resume.read()
+        file_name = resume.filename
+
+        # Run blocking PDF/DOCX parsing in a thread pool so it never blocks the event loop
+        def _parse_bytes(data: bytes, filename: str) -> str:
+            ext = os.path.splitext(filename)[1].lower()
+            text = ""
+            with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
+                tmp.write(data)
+                tmp_path = tmp.name
+            try:
+                if ext == '.pdf':
+                    with fitz.open(tmp_path) as pdf:
+                        for page in pdf:
+                            text += page.get_text()
+                elif ext in ('.docx', '.doc'):
+                    doc = Document(tmp_path)
+                    text = "\n".join(p.text for p in doc.paragraphs)
+            finally:
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
+            return (text.strip())[:8000]
+
+        resume_text = await asyncio.to_thread(_parse_bytes, file_bytes, file_name)
+
         if not resume_text or len(resume_text) < 50:
-            logger.warning(f"Resume text too short or empty for {resume.filename}")
-            # Return fallback questions
-            return {
-                "ok": True,
-                "data": {
-                    "questions": [
-                        "Please introduce yourself in 30 seconds.",
-                        "What are your key skills and strengths that make you a great candidate?",
-                        "Why are you interested in this position and what are your career goals?"
-                    ],
-                    "source": "fallback",
-                    "reason": "Resume text too short or could not be parsed"
-                }
-            }
-        
-        # Generate questions using Ollama (centralized service with fallbacks)
-        questions = await generate_questions_with_ollama(resume_text)
-        
+            logger.warning(f"Resume text too short or empty for {file_name}")
+            return _fallback_response("Resume text too short or could not be parsed")
+
+        # Generate questions using Ollama — also in a thread so it doesn't block
+        questions = await asyncio.to_thread(ollama_service.generate_interview_questions, resume_text)
+
         if questions:
             logger.info(f"Successfully generated {len(questions)} questions using Ollama")
-            return {
-                "ok": True,
-                "data": {
-                    "questions": questions,
-                    "source": "ai",
-                    "model": "ollama_service"
-                }
-            }
+            return {"ok": True, "data": {"questions": questions, "source": "ai", "model": "ollama"}}
         else:
-            # Fallback to default questions
-            logger.warning("Ollama generation failed, using fallback questions")
-            return {
-                "ok": True,
-                "data": {
-                    "questions": [
-                        "Please introduce yourself in 30 seconds.",
-                        "What are your key skills and strengths that make you a great candidate?",
-                        "Why are you interested in this position and what are your career goals?"
-                    ],
-                    "source": "fallback",
-                    "reason": "AI generation unavailable"
-                }
-            }
-            
+            logger.warning("Ollama returned no questions — using fallback")
+            return _fallback_response("AI generation returned no questions")
+
     except HTTPException:
         raise
+    except asyncio.CancelledError:
+        # Client disconnected mid-request — log it and return fallback so middleware doesn't crash
+        logger.warning("Interview question generation cancelled (client disconnected)")
+        return _fallback_response("Request cancelled")
     except Exception as e:
         logger.error(f"Generate interview questions failed: {str(e)}")
-        # Return fallback on error
-        return {
-            "ok": True,
-            "data": {
-                "questions": [
-                    "Please introduce yourself in 30 seconds.",
-                    "What are your key skills and strengths that make you a great candidate?",
-                    "Why are you interested in this position and what are your career goals?"
-                ],
-                "source": "fallback",
-                "reason": f"Error: {str(e)}"
-            }
-        }
+        return _fallback_response(f"Error: {str(e)}")
 
 @router.post("/applications/{application_id}/finish-interview")
 async def finish_interview(request: Request, application_id: str):
