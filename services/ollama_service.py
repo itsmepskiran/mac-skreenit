@@ -473,6 +473,13 @@ Rules:
 
 Questions:"""
 
+        # Generic pads used when Ollama returns fewer questions than requested
+        _pads = [
+            "Can you walk us through a challenging project from your experience and how you handled it?",
+            "What are the key skills from your background that you would bring to this role?",
+            "Describe a situation where you had to learn something new quickly. How did you approach it?",
+        ]
+
         try:
             url = f"{self.base_url}/api/generate"
             response = requests.post(
@@ -487,15 +494,22 @@ Questions:"""
                 line = line.strip()
                 if not line or len(line) < 10:
                     continue
-                # Strip leading numbering
+                # Strip leading numbering like "1." "2)" "3 "
                 if line[0].isdigit():
                     line = line.lstrip("0123456789.) ").strip()
                 if line and len(line) > 10:
                     questions.append(line)
                 if len(questions) >= num_questions:
                     break
+
+            # Pad to exactly num_questions so the interview always has intro + num_questions = 4 total
+            pad_idx = 0
+            while len(questions) < num_questions:
+                questions.append(_pads[pad_idx % len(_pads)])
+                pad_idx += 1
+
             logger.info(f"Generated {len(questions)} resume-based interview questions")
-            return questions if questions else None
+            return questions
         except Exception as e:
             logger.error(f"generate_interview_questions failed: {e}")
             return None
