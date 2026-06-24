@@ -3,6 +3,8 @@ Ollama Question Generation Service
 Generates assessment questions dynamically using local LLM models
 """
 
+import os
+
 import requests
 import json
 import logging
@@ -26,8 +28,8 @@ class TaskType(Enum):
 class OllamaService:
     """Service for generating assessment questions using Ollama"""
 
-    def __init__(self, base_url: str = "http://localhost:11434"):
-        self.base_url = base_url
+    def __init__(self, base_url: str = None):
+        self.base_url = base_url or os.getenv("ollama_base_url", "https://ollama.skreenit.com")
         self.models = {
             'general': 'mistral',
             'technical': 'codellama',
