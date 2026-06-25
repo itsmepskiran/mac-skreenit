@@ -769,8 +769,8 @@ async def submit_assessment_response(
 @router.post("/assessment-finish")
 async def finish_assessment(
     request: Request,
-    finish_data: AssessmentFinishRequest = Body(...),
     background_tasks: BackgroundTasks,
+    finish_data: AssessmentFinishRequest = Body(...),
     db: Session = Depends(get_db)
 ):
     """
