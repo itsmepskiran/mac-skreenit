@@ -3,7 +3,7 @@ Premium Assessment Router
 Handles AI-based assessments for premium features
 """
 
-from fastapi import APIRouter, Request, HTTPException, Depends, Body
+from fastapi import APIRouter, Request, HTTPException, Depends, Body, BackgroundTasks
 from datetime import datetime
 from typing import Optional
 import logging
@@ -29,6 +29,75 @@ logger = logging.getLogger(__name__)
 mysql_service = MySQLService()
 ollama_service = OllamaService()
 router = APIRouter(prefix="/premium", tags=["Premium Assessments"])
+
+# Assessment keys that are free for all authenticated users (service_type = 'general_plan')
+FREE_ASSESSMENT_KEYS: set = {
+    'gen_video_intro', 'gen_coding_basic', 'gen_typing', 'gen_aptitude',
+    'gen_psychometric', 'gen_attention_detail', 'gen_english_prof',
+    'gen_resume_quiz', 'gen_interview_prep',
+}
+
+
+def _is_free_assessment(assessment_key: str) -> bool:
+    return assessment_key in FREE_ASSESSMENT_KEYS or assessment_key.startswith('gen_')
+
+
+def _run_assessment_analysis_bg(
+    session_id: str,
+    assessment_key: str,
+    assessment_name: str,
+    responses: list,
+    mcq_score: Optional[int],
+    mcq_total: Optional[int],
+):
+    """Background task: run Ollama analysis and write results back to assessment_sessions."""
+    from database import SessionLocal
+    from sqlalchemy import text as sa_text
+
+    db = SessionLocal()
+    try:
+        db.execute(
+            sa_text("UPDATE assessment_sessions SET analysis_status = 'processing' WHERE id = :id"),
+            {"id": session_id},
+        )
+        db.commit()
+
+        result = ollama_service.analyze_assessment_responses(
+            assessment_name=assessment_name,
+            assessment_key=assessment_key,
+            responses=responses,
+            mcq_score=mcq_score,
+            mcq_total=mcq_total,
+        )
+
+        db.execute(
+            sa_text("""
+                UPDATE assessment_sessions
+                SET analysis_status = 'completed',
+                    ai_feedback     = :feedback,
+                    overall_score   = :score
+                WHERE id = :id
+            """),
+            {
+                "id":       session_id,
+                "feedback": json.dumps(result),
+                "score":    result.get('overall_score'),
+            },
+        )
+        db.commit()
+        logger.info(f"Analysis completed for session {session_id}: score={result.get('overall_score')}")
+    except Exception as e:
+        logger.error(f"Background analysis failed for session {session_id}: {e}")
+        try:
+            db.execute(
+                sa_text("UPDATE assessment_sessions SET analysis_status = 'failed' WHERE id = :id"),
+                {"id": session_id},
+            )
+            db.commit()
+        except Exception:
+            pass
+    finally:
+        db.close()
 
 # Assessment metadata mapping (maps service_key to assessment details)
 ASSESSMENT_METADATA = {
@@ -701,6 +770,7 @@ async def submit_assessment_response(
 async def finish_assessment(
     request: Request,
     finish_data: AssessmentFinishRequest = Body(...),
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db)
 ):
     """
@@ -764,6 +834,7 @@ async def finish_assessment(
             })
 
         # Create the session record
+        is_free = _is_free_assessment(assessment_key)
         session_id = str(uuid.uuid4())
         session_record = {
             'id':                  session_id,
@@ -778,17 +849,19 @@ async def finish_assessment(
             'mcq_total':           mcq_total   if mcq_total > 0 else None,
             'time_taken_seconds':  finish_data.timeTakenSeconds,
             'completed_at':        now.isoformat(),
+            'analysis_status':     'pending',
+            'is_free':             1 if is_free else 0,
         }
         from sqlalchemy import text as sa_text
         db.execute(sa_text("""
             INSERT INTO assessment_sessions
                 (id, user_id, assessment_key, assessment_name, format, status,
                  total_exercises, completed_exercises, mcq_score, mcq_total,
-                 time_taken_seconds, completed_at)
+                 time_taken_seconds, completed_at, analysis_status, is_free)
             VALUES
                 (:id, :user_id, :assessment_key, :assessment_name, :format, :status,
                  :total_exercises, :completed_exercises, :mcq_score, :mcq_total,
-                 :time_taken_seconds, :completed_at)
+                 :time_taken_seconds, :completed_at, :analysis_status, :is_free)
         """), session_record)
 
         # Save each exercise response, linked to the session
@@ -810,15 +883,28 @@ async def finish_assessment(
 
         logger.info(f"Assessment saved: session={session_id}, user={user_id}, key={assessment_key}, responses={len(response_rows)}")
 
+        # Trigger background AI analysis (non-blocking)
+        background_tasks.add_task(
+            _run_assessment_analysis_bg,
+            session_id=session_id,
+            assessment_key=assessment_key,
+            assessment_name=metadata.get('name', assessment_key),
+            responses=response_rows,
+            mcq_score=mcq_correct if mcq_total > 0 else None,
+            mcq_total=mcq_total   if mcq_total > 0 else None,
+        )
+
         return {
             "ok": True,
             "data": {
-                "session_id": session_id,
-                "status": "completed",
-                "mcq_score": mcq_correct if mcq_total > 0 else None,
-                "mcq_total": mcq_total   if mcq_total > 0 else None,
+                "session_id":      session_id,
+                "status":          "completed",
+                "is_free":         is_free,
+                "analysis_status": "pending",
+                "mcq_score":       mcq_correct if mcq_total > 0 else None,
+                "mcq_total":       mcq_total   if mcq_total > 0 else None,
                 "total_exercises": len(response_rows),
-                "message": "Assessment submitted successfully."
+                "message":         "Assessment submitted. AI analysis is in progress.",
             }
         }
 
@@ -927,6 +1013,15 @@ async def get_assessment_results(
         ).fetchall()
         responses = [dict(r._mapping) for r in resp_rows]
 
+        # Parse stored ai_feedback JSON if present
+        raw_feedback = session.get('ai_feedback')
+        ai_feedback = None
+        if raw_feedback:
+            try:
+                ai_feedback = json.loads(raw_feedback)
+            except Exception:
+                pass
+
         return {
             "ok": True,
             "data": {
@@ -935,6 +1030,8 @@ async def get_assessment_results(
                 "assessment_name":   session.get('assessment_name'),
                 "format":            session.get('format'),
                 "status":            session.get('status'),
+                "is_free":           bool(session.get('is_free', 0)),
+                "analysis_status":   session.get('analysis_status', 'pending'),
                 "completed_at":      str(session.get('completed_at', '')),
                 "total_exercises":   session.get('total_exercises', 0),
                 "time_taken_seconds":session.get('time_taken_seconds'),
@@ -942,6 +1039,7 @@ async def get_assessment_results(
                 "mcq_total":         session.get('mcq_total'),
                 "overall_score":     session.get('overall_score'),
                 "reviewer_notes":    session.get('reviewer_notes'),
+                "ai_feedback":       ai_feedback,
                 "responses": [
                     {
                         "section_id":    r.get('section_id'),
@@ -997,6 +1095,8 @@ async def get_my_assessments(
                     "assessment_name": s.get('assessment_name'),
                     "format":          s.get('format'),
                     "status":          s.get('status'),
+                    "is_free":         bool(s.get('is_free', 0)),
+                    "analysis_status": s.get('analysis_status', 'pending'),
                     "completed_at":    str(s.get('completed_at', '')),
                     "mcq_score":       s.get('mcq_score'),
                     "mcq_total":       s.get('mcq_total'),

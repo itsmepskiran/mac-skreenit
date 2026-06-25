@@ -15,12 +15,21 @@ from sqlalchemy import text
 import uuid
 import unicodedata
 
-EXCEL_PATH = "f:/Skreenit_App/database/dpts_dsgnts.xlsx"
-COUNTRIES_PATH = "f:/Skreenit_App/database/Skreenit_Global_Countries.xlsx"
-STATES_PATH = "f:/Skreenit_App/database/Skreenit_Global_States.xlsx"
-CITIES_PATH = "f:/Skreenit_App/database/worldcities.xlsx"
-UNIVERSITIES_PATH = "f:/Skreenit_App/database/Universities.xlsx"
-COLLEGES_PATH = "f:/Skreenit_App/database/Colleges.xlsx"
+def _db_path(filename):
+    """Resolve database file path relative to this script or from env variable."""
+    env_db = os.environ.get('SKREENIT_DB_PATH')
+    if env_db:
+        return os.path.join(env_db, filename)
+    # Default: two levels up from scripts/ → mac-skreenit/ → Skreenit/ → sql-skreenit/database/
+    base = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    return os.path.join(base, 'sql-skreenit', 'database', filename)
+
+EXCEL_PATH = _db_path("dpts_dsgnts.xlsx")
+COUNTRIES_PATH = _db_path("Skreenit_Global_Countries.xlsx")
+STATES_PATH = _db_path("Skreenit_Global_States.xlsx")
+CITIES_PATH = _db_path("worldcities.xlsx")
+UNIVERSITIES_PATH = _db_path("Universities.xlsx")
+COLLEGES_PATH = _db_path("Colleges.xlsx")
 
 def normalize_string(s):
     """Normalize string by removing diacritical marks."""

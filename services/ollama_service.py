@@ -451,6 +451,138 @@ Problems:"""
         self.cache.clear()
         logger.info("Question cache cleared")
 
+    def analyze_assessment_responses(
+        self,
+        assessment_name: str,
+        assessment_key: str,
+        responses: List[Dict[str, Any]],
+        mcq_score: Optional[int] = None,
+        mcq_total: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """
+        Evaluate submitted assessment responses using Ollama.
+        Returns overall score, grade, summary, strengths, improvements, and per-response feedback.
+        Falls back to rule-based scoring when Ollama is unavailable.
+        """
+        from datetime import datetime as _dt
+        from utils_others.grading import GradeCalculator
+
+        # Build text for analysis (only scorable responses)
+        scorable = []
+        voice_count = 0
+        for i, r in enumerate(responses):
+            rtype = r.get('response_type') or r.get('type', '')
+            if rtype == 'mcq':
+                correct = r.get('is_correct')
+                label = 'Correct' if correct == 1 else ('Incorrect' if correct == 0 else 'Not graded')
+                scorable.append({'index': i, 'type': 'mcq', 'label': label, 'text': None})
+            elif rtype in ('text', 'text_response', 'code'):
+                txt = (r.get('text_response') or r.get('text') or '').strip()
+                if txt:
+                    scorable.append({'index': i, 'type': rtype, 'label': rtype, 'text': txt[:800]})
+            elif rtype in ('voice', 'voice_scenario', 'read_aloud', 'repeat_sentence', 'qa_verbal',
+                           'vocabulary', 'topic_speaking'):
+                voice_count += 1
+
+        # Attempt Ollama analysis if available and there are text/code responses to score
+        text_items = [s for s in scorable if s['type'] not in ('mcq',)]
+        ollama_result = None
+
+        if self.is_ollama_available() and (text_items or scorable):
+            model = self._resolve_model('general')
+            if model:
+                try:
+                    response_lines = []
+                    for s in scorable:
+                        if s['type'] == 'mcq':
+                            response_lines.append(f"- [MCQ] Result: {s['label']}")
+                        else:
+                            response_lines.append(f"- [{s['type'].upper()}] Answer: {s['text']}")
+                    if voice_count:
+                        response_lines.append(f"- [VOICE] {voice_count} voice recording(s) submitted (audio not transcribed)")
+
+                    mcq_line = ''
+                    if mcq_total and mcq_total > 0:
+                        mcq_line = f"\nMCQ Score: {mcq_score}/{mcq_total} correct."
+
+                    prompt = f"""You are an expert assessment evaluator. Evaluate the following assessment responses.
+
+Assessment: {assessment_name}{mcq_line}
+
+Responses:
+{chr(10).join(response_lines)}
+
+Return ONLY valid JSON with this exact structure (no extra text):
+{{
+  "overall_score": <integer 0-100>,
+  "summary": "<2-3 sentence overall evaluation>",
+  "strengths": ["<strength 1>", "<strength 2>"],
+  "areas_for_improvement": ["<area 1>", "<area 2>"],
+  "response_feedback": [
+    {{"index": <response index>, "score": <0-100>, "feedback": "<brief feedback>"}}
+  ]
+}}
+
+Scoring: 90-100=Exceptional, 80-89=Excellent, 70-79=Very Good, 60-69=Good, 50-59=Average, below 50=Needs Improvement."""
+
+                    raw = requests.post(
+                        f"{self.base_url}/api/generate",
+                        json={"model": model, "prompt": prompt, "stream": False},
+                        timeout=180,
+                    )
+                    if raw.status_code == 200:
+                        text_out = raw.json().get('response', '')
+                        # Extract JSON block
+                        start = text_out.find('{')
+                        end = text_out.rfind('}') + 1
+                        if start != -1 and end > start:
+                            ollama_result = json.loads(text_out[start:end])
+                except Exception as e:
+                    logger.warning(f"Ollama assessment analysis failed: {e}")
+
+        # Build result (Ollama or fallback)
+        if ollama_result and isinstance(ollama_result.get('overall_score'), (int, float)):
+            overall_score = max(0, min(100, int(ollama_result['overall_score'])))
+            summary = ollama_result.get('summary', '')
+            strengths = ollama_result.get('strengths', [])
+            improvements = ollama_result.get('areas_for_improvement', [])
+            response_feedback = ollama_result.get('response_feedback', [])
+        else:
+            # Rule-based fallback
+            scores = []
+            if mcq_total and mcq_total > 0:
+                scores.append(int((mcq_score or 0) / mcq_total * 100))
+            for s in text_items:
+                # Baseline: 65 for any submitted text, scaled by length
+                length_bonus = min(20, len(s.get('text') or '') // 30)
+                scores.append(65 + length_bonus)
+            if voice_count:
+                scores.extend([65] * voice_count)
+            overall_score = int(sum(scores) / len(scores)) if scores else 60
+            summary = (
+                f"Your assessment for '{assessment_name}' has been submitted and saved. "
+                f"You completed {len(responses)} exercise(s). "
+                "Detailed AI feedback will be available once analysis is complete."
+            )
+            strengths = ["Assessment completed successfully", "All exercises attempted"]
+            improvements = ["Review your responses to identify areas for growth"]
+            response_feedback = []
+
+        grade_info = GradeCalculator.score_to_grade(overall_score)
+
+        return {
+            "overall_score": overall_score,
+            "overall_grade": grade_info["grade"],
+            "grade_label": grade_info["label"],
+            "grade_color": grade_info["color"],
+            "summary": summary,
+            "strengths": strengths[:4],
+            "areas_for_improvement": improvements[:4],
+            "response_feedback": response_feedback,
+            "analyzed_at": _dt.utcnow().isoformat(),
+            "analyzer": "ollama" if ollama_result else "fallback",
+        }
+
     def generate_interview_questions(self, resume_text: str, num_questions: int = 3) -> Optional[List[str]]:
         """Generate personalised interview questions from a candidate's resume text.
         Returns a plain list of question strings, or None if Ollama is unavailable."""
