@@ -141,6 +141,23 @@ class SubscriptionService:
         either through an active core subscription or a per-action unexpired token block.
         """
         try:
+            # Demo/unlimited access: user has an active subscription to the demo_all_access plan.
+            # This grants access to ANY feature key — including future ones not yet in the features JSON.
+            demo_check = self.db.execute(
+                text("""
+                    SELECT 1 FROM user_subscriptions us
+                    JOIN pricing_plans pp ON us.plan_id = pp.id
+                    WHERE us.user_id = :user_id
+                      AND pp.service_key = 'demo_all_access'
+                      AND us.status IN ('active', 'trial')
+                      AND (us.expiry_date IS NULL OR us.expiry_date > NOW())
+                    LIMIT 1
+                """),
+                {"user_id": user_id}
+            ).fetchone()
+            if demo_check:
+                return {"accessible": True, "type": "unlimited", "remaining": None}
+
             # Free assessment check: if the plan belongs to general_plan service_type, grant access to all users.
             free_check = self.db.execute(
                 text("""
