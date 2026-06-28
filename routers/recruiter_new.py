@@ -3,6 +3,8 @@ Updated Recruiter Router to use MySQL service layer.
 """
 
 from fastapi import APIRouter, HTTPException, Request, UploadFile, File, Form, Depends
+from database import get_db
+from sqlalchemy.orm import Session
 from typing import Optional, List
 import json
 import os
@@ -563,12 +565,67 @@ async def get_candidate_details(request: Request, candidate_id: str):
         user_info = user_service.get_user(candidate_id)
         
         return {"ok": True, "data": {"profile": profile, "user": user_info}}
-    
+
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Get candidate details failed: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/candidates/{candidate_id}/assessments")
+async def get_candidate_assessments(
+    request: Request,
+    candidate_id: str,
+    db: Session = Depends(get_db)
+):
+    """Return completed premium assessment results for a candidate (recruiter view).
+    Only premium (paid) assessments are returned — free results are excluded.
+    """
+    ensure_permission(request, "candidates:read")
+
+    try:
+        from sqlalchemy import text as sa_text
+        rows = db.execute(
+            sa_text("""
+                SELECT id, assessment_key, assessment_name, format,
+                       analysis_status, overall_score, overall_grade,
+                       mcq_score, mcq_total, completed_at
+                FROM assessment_sessions
+                WHERE user_id = :uid
+                  AND is_free = 0
+                  AND analysis_status = 'completed'
+                  AND overall_score IS NOT NULL
+                ORDER BY completed_at DESC
+            """),
+            {"uid": candidate_id}
+        ).fetchall()
+
+        sessions = [dict(r._mapping) for r in rows]
+        return {
+            "ok": True,
+            "data": [
+                {
+                    "session_id":      s["id"],
+                    "assessment_key":  s["assessment_key"],
+                    "assessment_name": s["assessment_name"],
+                    "format":          s["format"],
+                    "overall_score":   s["overall_score"],
+                    "overall_grade":   s["overall_grade"],
+                    "mcq_score":       s["mcq_score"],
+                    "mcq_total":       s["mcq_total"],
+                    "completed_at":    str(s["completed_at"] or ""),
+                }
+                for s in sessions
+            ]
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Get candidate assessments failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 # ============================================================
 # JOB SKILLS ENDPOINTS
