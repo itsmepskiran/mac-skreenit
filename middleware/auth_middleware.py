@@ -51,6 +51,7 @@ EXCLUDED_PATHS = {
     "/api/v1/training/registrations",
     "/api/v1/training/payment-config",
     "/api/v1/admin/login",
+    "/api/v1/admin/seminar-enquiry",
     "/api/v1/subscription/pricing/plans",
     "/api/v1/subscription/payment-config",
     "/api/v1/subscription/webhook",

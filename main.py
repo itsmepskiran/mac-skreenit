@@ -37,7 +37,8 @@ from routers import (
     resume_analysis,
     admin,
     subscription,
-    premium_assessment
+    premium_assessment,
+    seminar,
 )
 
 ENV = os.getenv("ENVIRONMENT", "development")
@@ -217,6 +218,7 @@ api.include_router(resume_analysis.router, tags=["Resume Analysis"])
 api.include_router(admin.router, tags=["Admin"])
 api.include_router(subscription.router, tags=["Subscription"])
 api.include_router(premium_assessment.router, tags=["Premium Assessments"])
+api.include_router(seminar.router, tags=["Seminars"])
 
 @api.get("/health")
 async def versioned_health():
