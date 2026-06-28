@@ -138,6 +138,15 @@ pdfplumber==0.11.0
 markitdown==0.0.1a2  # Microsoft's MarkItDown for document to Markdown conversion
 beautifulsoup4==4.12.3  # HTML parsing for resume template conversion
 
+# Multi-format resume parsing
+olefile>=0.47           # .doc (Word 97-2003 binary OLE format)
+openpyxl>=3.1.0         # .xlsx Excel files
+xlrd>=2.0.0             # .xls Excel legacy files
+python-pptx>=1.0.0      # .pptx PowerPoint files
+striprtf>=0.0.26        # .rtf Rich Text Format files
+odfpy>=1.4.1            # .odt OpenDocument Text files
+pytesseract>=0.3.10     # OCR for image files (requires: brew install tesseract)
+
 # =============================================================================
 # SYSTEM UTILITIES (Mac compatible versions)
 # =============================================================================

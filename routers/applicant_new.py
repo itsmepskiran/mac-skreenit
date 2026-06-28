@@ -1603,41 +1603,218 @@ async def delete_video(request: Request, video_data: dict = Body(...)):
 # AI INTERVIEW QUESTION GENERATION
 # ============================================================
 
-def parse_resume_text(file: UploadFile) -> str:
-    """Extract text from PDF or DOCX resume file."""
-    text = ""
-    file_extension = os.path.splitext(file.filename)[1].lower()
-    
+# All extensions accepted by the resume parser
+RESUME_ALLOWED_EXTENSIONS = {
+    '.pdf', '.docx', '.doc',
+    '.xlsx', '.xls',
+    '.pptx',
+    '.odt',
+    '.rtf',
+    '.txt', '.text',
+    '.html', '.htm',
+    '.csv',
+    '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.tiff', '.tif', '.webp',
+}
+
+
+def _resume_parse_pdf(path: str) -> str:
+    with fitz.open(path) as pdf:
+        return "\n".join(page.get_text() for page in pdf)
+
+
+def _resume_parse_docx(path: str) -> str:
+    doc = Document(path)
+    parts = [p.text for p in doc.paragraphs]
+    for table in doc.tables:
+        for row in table.rows:
+            parts.extend(cell.text for cell in row.cells)
+    return "\n".join(parts)
+
+
+def _resume_parse_doc(path: str) -> str:
+    import re
+    # Try python-docx first — works when the file is really .docx with a .doc extension
     try:
-        # Save uploaded file to temp location
-        with tempfile.NamedTemporaryFile(delete=False, suffix=file_extension) as tmp_file:
-            shutil.copyfileobj(file.file, tmp_file)
-            tmp_path = tmp_file.name
-        
-        # Parse based on file type
-        if file_extension == '.pdf':
-            # Parse PDF using PyMuPDF
-            with fitz.open(tmp_path) as pdf:
-                for page in pdf:
-                    text += page.get_text()
-        elif file_extension in ['.docx', '.doc']:
-            # Parse DOCX using python-docx
-            doc = Document(tmp_path)
-            for para in doc.paragraphs:
-                text += para.text + "\n"
+        text = _resume_parse_docx(path)
+        if text.strip():
+            return text
+    except Exception:
+        pass
+    # olefile for true Word 97-2003 binary (.doc) format
+    try:
+        import olefile
+    except ImportError:
+        raise ValueError(
+            "Cannot parse .doc binary format: olefile is not installed. "
+            "Run: pip install olefile  — or save the file as .docx and re-upload."
+        )
+    if not olefile.isOleFile(path):
+        raise ValueError("File is not a valid .doc (OLE2) document.")
+    with olefile.OleFileIO(path) as ole:
+        if not ole.exists('WordDocument'):
+            raise ValueError("No WordDocument stream found in .doc file.")
+        data = ole.openstream('WordDocument').read()
+    # Word 97+ stores text as UTF-16 LE; decode then strip non-printable control bytes
+    text = data.decode('utf-16-le', errors='ignore')
+    text = re.sub(r'[^\x20-\x7E -￿\n\r\t]+', ' ', text)
+    text = re.sub(r'[ \t]+', ' ', text).strip()
+    if len(text) < 20:
+        raise ValueError("Could not extract meaningful text from .doc file. Try saving as .docx.")
+    return text
+
+
+def _resume_parse_excel(path: str, ext: str) -> str:
+    parts = []
+    if ext == '.xlsx':
+        import openpyxl
+        wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+        for ws in wb.worksheets:
+            for row in ws.iter_rows(values_only=True):
+                row_text = ' | '.join(str(c) for c in row if c is not None and str(c).strip())
+                if row_text:
+                    parts.append(row_text)
+        wb.close()
+    else:  # .xls
+        import xlrd
+        wb = xlrd.open_workbook(path)
+        for ws in wb.sheets():
+            for i in range(ws.nrows):
+                row_text = ' | '.join(
+                    str(ws.cell_value(i, j)) for j in range(ws.ncols)
+                    if str(ws.cell_value(i, j)).strip()
+                )
+                if row_text:
+                    parts.append(row_text)
+    return "\n".join(parts)
+
+
+def _resume_parse_pptx(path: str) -> str:
+    from pptx import Presentation
+    prs = Presentation(path)
+    parts = []
+    for slide in prs.slides:
+        for shape in slide.shapes:
+            if hasattr(shape, 'text') and shape.text.strip():
+                parts.append(shape.text)
+    return "\n".join(parts)
+
+
+def _resume_parse_odt(path: str) -> str:
+    from odf.opendocument import load as odf_load
+    from odf import text as odf_text_mod, teletype
+    doc = odf_load(path)
+    return "\n".join(teletype.extractText(p) for p in doc.getElementsByType(odf_text_mod.P))
+
+
+def _resume_parse_rtf(path: str) -> str:
+    from striprtf.striprtf import rtf_to_text
+    with open(path, encoding='utf-8', errors='ignore') as f:
+        return rtf_to_text(f.read())
+
+
+def _resume_parse_txt(path: str) -> str:
+    for enc in ('utf-8', 'utf-16', 'latin-1'):
+        try:
+            with open(path, encoding=enc) as f:
+                return f.read()
+        except UnicodeDecodeError:
+            continue
+    return ""
+
+
+def _resume_parse_html(path: str) -> str:
+    from bs4 import BeautifulSoup
+    with open(path, encoding='utf-8', errors='ignore') as f:
+        return BeautifulSoup(f.read(), 'html.parser').get_text(separator='\n')
+
+
+def _resume_parse_csv(path: str) -> str:
+    import csv
+    parts = []
+    with open(path, encoding='utf-8', errors='ignore', newline='') as f:
+        for row in csv.reader(f):
+            row_text = ' | '.join(cell for cell in row if cell.strip())
+            if row_text:
+                parts.append(row_text)
+    return "\n".join(parts)
+
+
+def _resume_parse_image(path: str) -> str:
+    try:
+        import pytesseract
+        from PIL import Image as PILImage
+    except ImportError:
+        raise ValueError(
+            "pytesseract is not installed. Run: pip install pytesseract  "
+            "and install the Tesseract binary "
+            "(brew install tesseract on macOS; apt-get install tesseract-ocr on Linux; "
+            "download installer from github.com/UB-Mannheim/tesseract on Windows)."
+        )
+    img = PILImage.open(path)
+    if img.mode not in ('RGB', 'L'):
+        img = img.convert('RGB')
+    return pytesseract.image_to_string(img)
+
+
+def extract_resume_text(data: bytes, filename: str) -> str:
+    """
+    Extract plain text from any supported resume file format.
+    Supports: PDF, DOCX, DOC, XLSX, XLS, PPTX, ODT, RTF, TXT, HTML, CSV,
+    and image files (PNG, JPG, JPEG, GIF, BMP, TIFF, WEBP) via OCR.
+    Returns at most 8000 characters of extracted text.
+    """
+    ext = os.path.splitext(filename)[1].lower()
+    if ext not in RESUME_ALLOWED_EXTENSIONS:
+        raise ValueError(
+            f"Unsupported file type '{ext}'. "
+            f"Allowed: {', '.join(sorted(RESUME_ALLOWED_EXTENSIONS))}"
+        )
+
+    with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
+        tmp.write(data)
+        tmp_path = tmp.name
+
+    try:
+        if ext == '.pdf':
+            text = _resume_parse_pdf(tmp_path)
+        elif ext == '.docx':
+            text = _resume_parse_docx(tmp_path)
+        elif ext == '.doc':
+            text = _resume_parse_doc(tmp_path)
+        elif ext in ('.xlsx', '.xls'):
+            text = _resume_parse_excel(tmp_path, ext)
+        elif ext == '.pptx':
+            text = _resume_parse_pptx(tmp_path)
+        elif ext == '.odt':
+            text = _resume_parse_odt(tmp_path)
+        elif ext == '.rtf':
+            text = _resume_parse_rtf(tmp_path)
+        elif ext in ('.txt', '.text'):
+            text = _resume_parse_txt(tmp_path)
+        elif ext in ('.html', '.htm'):
+            text = _resume_parse_html(tmp_path)
+        elif ext == '.csv':
+            text = _resume_parse_csv(tmp_path)
+        elif ext in ('.png', '.jpg', '.jpeg', '.gif', '.bmp', '.tiff', '.tif', '.webp'):
+            text = _resume_parse_image(tmp_path)
         else:
-            raise ValueError(f"Unsupported file type: {file_extension}")
-        
-        # Cleanup temp file
-        os.unlink(tmp_path)
-        
-        # Clean up text
-        text = text.strip()
-        if len(text) > 8000:
-            text = text[:8000]  # Limit to 8000 chars for Ollama context
-        
-        return text
-        
+            raise ValueError(f"No parser registered for extension: {ext}")
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+
+    return text.strip()[:8000]
+
+
+def parse_resume_text(file: UploadFile) -> str:
+    """Extract text from any supported resume file format."""
+    try:
+        data = file.file.read()
+        return extract_resume_text(data, file.filename)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(f"Resume parsing failed: {str(e)}")
         raise HTTPException(status_code=400, detail=f"Failed to parse resume: {str(e)}")
@@ -1665,10 +1842,12 @@ async def generate_interview_questions(
         logger.info(f"Generating interview questions for resume: {resume.filename}, user: {user_id}")
 
         # Validate file type
-        allowed_extensions = ['.pdf', '.docx', '.doc']
         file_ext = os.path.splitext(resume.filename)[1].lower()
-        if file_ext not in allowed_extensions:
-            raise HTTPException(status_code=400, detail=f"Invalid file type. Allowed: {', '.join(allowed_extensions)}")
+        if file_ext not in RESUME_ALLOWED_EXTENSIONS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid file type '{file_ext}'. Allowed: {', '.join(sorted(RESUME_ALLOWED_EXTENSIONS))}"
+            )
 
         # Run Ollama availability check in a thread — it's a synchronous requests.get call
         # and must NOT block the async event loop
@@ -1681,29 +1860,8 @@ async def generate_interview_questions(
         file_bytes = await resume.read()
         file_name = resume.filename
 
-        # Run blocking PDF/DOCX parsing in a thread pool so it never blocks the event loop
-        def _parse_bytes(data: bytes, filename: str) -> str:
-            ext = os.path.splitext(filename)[1].lower()
-            text = ""
-            with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
-                tmp.write(data)
-                tmp_path = tmp.name
-            try:
-                if ext == '.pdf':
-                    with fitz.open(tmp_path) as pdf:
-                        for page in pdf:
-                            text += page.get_text()
-                elif ext in ('.docx', '.doc'):
-                    doc = Document(tmp_path)
-                    text = "\n".join(p.text for p in doc.paragraphs)
-            finally:
-                try:
-                    os.unlink(tmp_path)
-                except OSError:
-                    pass
-            return (text.strip())[:8000]
-
-        resume_text = await asyncio.to_thread(_parse_bytes, file_bytes, file_name)
+        # Run blocking parsing in a thread pool so it never blocks the event loop
+        resume_text = await asyncio.to_thread(extract_resume_text, file_bytes, file_name)
 
         if not resume_text or len(resume_text) < 50:
             logger.warning(f"Resume text too short or empty for {file_name}")
