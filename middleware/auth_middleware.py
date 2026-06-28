@@ -55,6 +55,13 @@ EXCLUDED_PATHS = {
     "/api/v1/subscription/pricing/plans",
     "/api/v1/subscription/payment-config",
     "/api/v1/subscription/webhook",
+    # Seminar public endpoints
+    "/api/v1/seminars",
+    "/api/v1/seminars/config/payment",
+    "/api/v1/seminars/register",
+    "/api/v1/seminars/create-order",
+    "/api/v1/seminars/payment-success",
+    "/api/v1/seminars/webhook",
 }
 
 class CustomAuthMiddleware(BaseHTTPMiddleware):
@@ -94,6 +101,10 @@ class CustomAuthMiddleware(BaseHTTPMiddleware):
                 is_excluded = True
             elif clean_path.startswith("/api/v1/training/registrations/CORP") or \
                  clean_path.startswith("/api/v1/training/registrations/STU"):
+                is_excluded = True
+            elif clean_path.startswith("/api/v1/seminars/registration/") or \
+                 clean_path.startswith("/api/v1/seminars/SEM-") or \
+                 (clean_path.startswith("/api/v1/seminars/") and clean_path.count("/") == 4):
                 is_excluded = True
 
         if is_excluded:
