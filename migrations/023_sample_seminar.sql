@@ -1,0 +1,58 @@
+-- ============================================================
+-- Migration 023: Sample Seminar for Testing
+-- Run this AFTER 022_create_seminars_tables.sql
+-- ============================================================
+
+INSERT INTO seminars (
+    id,
+    seminar_id,
+    title,
+    short_desc,
+    description,
+    seminar_date,
+    seminar_time,
+    end_time,
+    duration_label,
+    mode,
+    venue,
+    venue_address,
+    city,
+    price_inr,
+    early_bird_price,
+    early_bird_deadline,
+    capacity,
+    enrolled_count,
+    speaker_name,
+    speaker_bio,
+    topics,
+    is_active,
+    is_featured,
+    created_at,
+    updated_at
+) VALUES (
+    UUID(),
+    'SEM-20250720-TEST1',
+    'Cracking the Interview: Strategies That Get You Hired',
+    'Master the art of interviews — from mindset to follow-up — with actionable techniques used by top candidates.',
+    'This full-day workshop covers everything you need to walk into any interview with confidence. Whether you are a fresher or an experienced professional, our expert trainers will guide you through resume positioning, behavioural question frameworks (STAR), salary negotiation, and how to stand out in panel rounds. You will practice with mock interviews and receive personalised feedback.',
+    DATE_ADD(CURDATE(), INTERVAL 21 DAY),
+    '09:30 AM',
+    '05:00 PM',
+    'Full Day (7 hrs)',
+    'hybrid',
+    'Skreenit Training Centre',
+    '4th Floor, Skreenit House, Jubilee Hills Road No. 36',
+    'Hyderabad',
+    2499,
+    1499,
+    DATE_ADD(CURDATE(), INTERVAL 10 DAY),
+    60,
+    0,
+    'Priya Nair',
+    'Priya is a Senior HR Lead with 14+ years at Fortune 500 companies. She has interviewed 3,000+ candidates and knows exactly what panel interviewers look for.',
+    '["Resume & LinkedIn Optimisation", "STAR Method for Behavioural Questions", "Mock Interviews with Feedback", "Salary Negotiation Tactics", "Body Language & First Impressions", "Post-Interview Follow-Up Strategy"]',
+    1,
+    1,
+    NOW(),
+    NOW()
+);
