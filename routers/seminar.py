@@ -3,26 +3,30 @@ Seminar Router — Public Endpoints
 ==================================
 Public listing, registration and Razorpay payment for seminars.
 Admin CRUD endpoints live in routers/admin.py under /admin/seminars*.
+Uses raw SQLAlchemy text() — seminars tables have no ORM model.
 """
 
 import uuid
 import time
 import json
-from datetime import datetime
+from datetime import datetime, date
 from fastapi import APIRouter, HTTPException, Request, Body
 from fastapi.responses import JSONResponse
+from sqlalchemy import text
 
-from services.mysql_service import MySQLService
+from database import get_db
 from services.payment_service import PaymentService
 from utils_others.logger import logger
 
 router = APIRouter(prefix="/seminars", tags=["Seminars"])
-mysql_service = MySQLService()
 payment_service = PaymentService()
 
 
+def _row(r):
+    return dict(r._mapping)
+
+
 def _fmt_seminar(s: dict) -> dict:
-    """Prepare a seminar dict for public consumption."""
     topics = s.get("topics")
     if topics and isinstance(topics, str):
         try:
@@ -65,50 +69,70 @@ def _fmt_seminar(s: dict) -> dict:
 @router.get("")
 async def list_seminars(upcoming_only: bool = True):
     """List all active seminars; optionally filter to upcoming only."""
-    from sqlalchemy import text
-    from database import get_db
     try:
         db = next(get_db())
         where = "is_active = 1"
         if upcoming_only:
             where += " AND seminar_date >= CURDATE()"
-        rows = db.execute(text(f"""
-            SELECT * FROM seminars WHERE {where}
-            ORDER BY is_featured DESC, seminar_date ASC
-        """)).fetchall()
-        return {"ok": True, "data": [_fmt_seminar(dict(r._mapping)) for r in rows]}
+        rows = db.execute(text(
+            f"SELECT * FROM seminars WHERE {where} ORDER BY is_featured DESC, seminar_date ASC"
+        )).fetchall()
+        return {"ok": True, "data": [_fmt_seminar(_row(r)) for r in rows]}
     except Exception as e:
         logger.error(f"List seminars failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/config/payment")
+async def get_payment_config():
+    return {"ok": True, "data": payment_service.get_public_config("Skreenit Seminars")}
+
+
+@router.get("/registration/{registration_id}")
+async def get_registration(registration_id: str):
+    """Get seminar registration details (for confirmation page)."""
+    try:
+        db  = next(get_db())
+        reg = db.execute(text(
+            "SELECT * FROM seminar_registrations WHERE registration_id = :rid"
+        ), {"rid": registration_id}).fetchone()
+        if not reg:
+            raise HTTPException(status_code=404, detail="Registration not found")
+        reg_dict = _row(reg)
+
+        seminar = db.execute(text(
+            "SELECT * FROM seminars WHERE id = :sid"
+        ), {"sid": reg_dict.get("seminar_id")}).fetchone()
+
+        return {
+            "ok": True,
+            "data": {
+                "registration": reg_dict,
+                "seminar": _fmt_seminar(_row(seminar)) if seminar else None,
+            },
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/{seminar_id}")
 async def get_seminar(seminar_id: str):
-    """Get a single seminar by its friendly seminar_id."""
-    from sqlalchemy import text
-    from database import get_db
+    """Get a single active seminar by its friendly seminar_id or UUID."""
     try:
-        db = next(get_db())
+        db  = next(get_db())
         row = db.execute(text(
             "SELECT * FROM seminars WHERE (seminar_id = :sid OR id = :sid) AND is_active = 1"
         ), {"sid": seminar_id}).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Seminar not found")
-        return {"ok": True, "data": _fmt_seminar(dict(row._mapping))}
+        return {"ok": True, "data": _fmt_seminar(_row(row))}
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Get seminar failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
-
-
-# ============================================================
-# PUBLIC: PAYMENT CONFIG
-# ============================================================
-
-@router.get("/config/payment")
-async def get_payment_config():
-    return {"ok": True, "data": payment_service.get_public_config("Skreenit Seminars")}
 
 
 # ============================================================
@@ -118,69 +142,82 @@ async def get_payment_config():
 @router.post("/register")
 async def register_seminar(body: dict = Body(...)):
     """
-    Create a pending seminar registration.
-    Call this before opening Razorpay checkout.
-    Body: seminar_id, full_name, email, mobile, [company, designation, city]
+    Create a pending seminar registration before opening Razorpay checkout.
+    Body: seminar_id (friendly or UUID), full_name, email, mobile,
+          [company, designation, city]
     """
     try:
-        seminar_id   = body.get("seminar_id", "").strip()
-        full_name    = body.get("full_name", "").strip()
-        email        = body.get("email", "").strip()
-        mobile       = body.get("mobile", "").strip()
-        company      = body.get("company", "").strip() or None
-        designation  = body.get("designation", "").strip() or None
-        city         = body.get("city", "").strip() or None
+        seminar_id  = (body.get("seminar_id") or "").strip()
+        full_name   = (body.get("full_name")  or "").strip()
+        email       = (body.get("email")      or "").strip()
+        mobile      = (body.get("mobile")     or "").strip()
+        company     = (body.get("company")    or "").strip() or None
+        designation = (body.get("designation") or "").strip() or None
+        city        = (body.get("city")       or "").strip() or None
 
         if not all([seminar_id, full_name, email, mobile]):
             raise HTTPException(status_code=400, detail="seminar_id, full_name, email, mobile are required")
 
-        seminar = mysql_service.get_single_record("seminars", {"seminar_id": seminar_id, "is_active": True})
-        if not seminar:
-            seminar = mysql_service.get_single_record("seminars", {"id": seminar_id, "is_active": True})
-        if not seminar:
+        db = next(get_db())
+
+        seminar_row = db.execute(text(
+            "SELECT * FROM seminars WHERE (seminar_id = :sid OR id = :sid) AND is_active = 1"
+        ), {"sid": seminar_id}).fetchone()
+
+        if not seminar_row:
             raise HTTPException(status_code=404, detail="Seminar not found or inactive")
 
-        # Capacity check
-        if seminar.get("capacity"):
-            if seminar.get("enrolled_count", 0) >= seminar["capacity"]:
-                raise HTTPException(status_code=400, detail="This seminar has reached full capacity")
+        seminar = _row(seminar_row)
 
-        # Effective price (early bird if applicable)
-        price = seminar["price_inr"]
+        # Capacity check
+        capacity      = seminar.get("capacity")
+        enrolled      = seminar.get("enrolled_count", 0) or 0
+        if capacity and enrolled >= capacity:
+            raise HTTPException(status_code=400, detail="This seminar has reached full capacity")
+
+        # Effective price — apply early bird if deadline not passed
+        price       = seminar["price_inr"]
         eb_deadline = seminar.get("early_bird_deadline")
         eb_price    = seminar.get("early_bird_price")
         if eb_price is not None and eb_deadline:
             try:
-                from datetime import date
-                if isinstance(eb_deadline, str):
-                    eb_deadline = date.fromisoformat(eb_deadline)
-                if date.today() <= eb_deadline:
+                deadline = eb_deadline if isinstance(eb_deadline, date) else date.fromisoformat(str(eb_deadline))
+                if date.today() <= deadline:
                     price = eb_price
             except Exception:
                 pass
 
         registration_id = f"SEMREG{int(time.time() * 1000)}{str(uuid.uuid4())[:4].upper()}"
-        reg_id = str(uuid.uuid4())
+        reg_uuid        = str(uuid.uuid4())
+        now             = datetime.now()
 
-        mysql_service.insert_record("seminar_registrations", {
-            "id":               reg_id,
-            "registration_id":  registration_id,
-            "seminar_id":       seminar["id"],
-            "seminar_title":    seminar["title"],
-            "full_name":        full_name,
-            "email":            email,
-            "mobile":           mobile,
-            "company":          company,
-            "designation":      designation,
-            "city":             city,
-            "amount":           price,
-            "payment_status":   "pending",
-            "status":           "pending",
-            "created_at":       datetime.now(),
-            "updated_at":       datetime.now(),
+        db.execute(text("""
+            INSERT INTO seminar_registrations
+                (id, registration_id, seminar_id, seminar_title,
+                 full_name, email, mobile, company, designation, city,
+                 amount, payment_status, status, created_at, updated_at)
+            VALUES
+                (:id, :registration_id, :seminar_id, :seminar_title,
+                 :full_name, :email, :mobile, :company, :designation, :city,
+                 :amount, 'pending', 'pending', :created_at, :updated_at)
+        """), {
+            "id":              reg_uuid,
+            "registration_id": registration_id,
+            "seminar_id":      seminar["id"],
+            "seminar_title":   seminar["title"],
+            "full_name":       full_name,
+            "email":           email,
+            "mobile":          mobile,
+            "company":         company,
+            "designation":     designation,
+            "city":            city,
+            "amount":          price,
+            "created_at":      now,
+            "updated_at":      now,
         })
+        db.commit()
 
-        logger.info(f"Seminar registration created: {registration_id} for seminar {seminar['title']}")
+        logger.info(f"Seminar registration created: {registration_id} for {seminar['title']}")
 
         return {
             "ok": True,
@@ -207,16 +244,22 @@ async def register_seminar(body: dict = Body(...)):
 async def create_seminar_order(body: dict = Body(...)):
     """Create a Razorpay order for a seminar registration."""
     try:
-        registration_id = body.get("registration_id", "").strip()
+        registration_id = (body.get("registration_id") or "").strip()
         if not registration_id:
             raise HTTPException(status_code=400, detail="registration_id is required")
 
-        reg = mysql_service.get_single_record("seminar_registrations", {"registration_id": registration_id})
-        if not reg:
+        db  = next(get_db())
+        row = db.execute(text(
+            "SELECT * FROM seminar_registrations WHERE registration_id = :rid"
+        ), {"rid": registration_id}).fetchone()
+
+        if not row:
             raise HTTPException(status_code=404, detail="Registration not found")
+
+        reg = _row(row)
         if reg.get("payment_status") == "completed":
             raise HTTPException(status_code=400, detail="Payment already completed")
-        if reg.get("amount", 0) <= 0:
+        if not reg.get("amount") or reg["amount"] <= 0:
             raise HTTPException(status_code=400, detail="Cannot create order for free seminar")
 
         order = payment_service.create_order(
@@ -225,11 +268,12 @@ async def create_seminar_order(body: dict = Body(...)):
             notes={"registration_id": registration_id, "seminar_title": reg.get("seminar_title", "")},
         )
 
-        mysql_service.update_record(
-            "seminar_registrations",
-            {"razorpay_order_id": order["id"], "updated_at": datetime.now()},
-            {"registration_id": registration_id},
-        )
+        db.execute(text("""
+            UPDATE seminar_registrations
+            SET razorpay_order_id = :order_id, updated_at = :now
+            WHERE registration_id = :rid
+        """), {"order_id": order["id"], "rid": registration_id, "now": datetime.now()})
+        db.commit()
 
         return {"ok": True, "data": {"order_id": order["id"], "amount": order["amount"], "currency": order["currency"]}}
 
@@ -246,7 +290,7 @@ async def create_seminar_order(body: dict = Body(...)):
 
 @router.post("/payment-success")
 async def seminar_payment_success(body: dict = Body(...)):
-    """Verify Razorpay payment and confirm seminar registration."""
+    """Verify Razorpay payment signature and confirm the registration."""
     try:
         registration_id     = body.get("registration_id")
         razorpay_order_id   = body.get("razorpay_order_id")
@@ -259,32 +303,38 @@ async def seminar_payment_success(body: dict = Body(...)):
         if not payment_service.verify_payment_signature(razorpay_order_id, razorpay_payment_id, razorpay_signature):
             raise HTTPException(status_code=400, detail="Payment signature verification failed")
 
-        reg = mysql_service.get_single_record("seminar_registrations", {"registration_id": registration_id})
-        if not reg:
+        db  = next(get_db())
+        row = db.execute(text(
+            "SELECT * FROM seminar_registrations WHERE registration_id = :rid"
+        ), {"rid": registration_id}).fetchone()
+
+        if not row:
             raise HTTPException(status_code=404, detail="Registration not found")
 
-        mysql_service.update_record(
-            "seminar_registrations",
-            {
-                "payment_status":   "completed",
-                "payment_id":       razorpay_payment_id,
-                "razorpay_order_id": razorpay_order_id,
-                "payment_date":     datetime.now(),
-                "status":           "confirmed",
-                "updated_at":       datetime.now(),
-            },
-            {"registration_id": registration_id},
-        )
+        reg = _row(row)
+        now = datetime.now()
 
-        # Increment enrolled_count on the seminar
-        try:
-            from sqlalchemy import text as _text
-            from database import get_db as _get_db
-            _db = next(_get_db())
-            _db.execute(_text("UPDATE seminars SET enrolled_count = enrolled_count + 1 WHERE id = :sid"), {"sid": reg["seminar_id"]})
-            _db.commit()
-        except Exception as e2:
-            logger.warning(f"Failed to increment enrolled_count: {e2}")
+        db.execute(text("""
+            UPDATE seminar_registrations
+            SET payment_status = 'completed',
+                payment_id = :payment_id,
+                razorpay_order_id = :order_id,
+                payment_date = :now,
+                status = 'confirmed',
+                updated_at = :now
+            WHERE registration_id = :rid
+        """), {
+            "payment_id": razorpay_payment_id,
+            "order_id":   razorpay_order_id,
+            "now":        now,
+            "rid":        registration_id,
+        })
+
+        db.execute(text(
+            "UPDATE seminars SET enrolled_count = enrolled_count + 1 WHERE id = :sid"
+        ), {"sid": reg["seminar_id"]})
+
+        db.commit()
 
         logger.info(f"Seminar payment confirmed: {registration_id}")
         return {"ok": True, "data": {"registration_id": registration_id, "status": "confirmed"}}
@@ -309,64 +359,44 @@ async def seminar_webhook(request: Request):
         if not payment_service.verify_webhook_signature(raw_body, signature):
             return JSONResponse(status_code=400, content={"error": "Invalid signature"})
 
-        event = json.loads(raw_body)
+        event      = json.loads(raw_body)
         event_type = event.get("event")
+        db         = next(get_db())
 
         if event_type in ("payment.captured", "order.paid"):
-            order_id   = event.get("payload", {}).get("payment", {}).get("entity", {}).get("order_id")
-            payment_id = event.get("payload", {}).get("payment", {}).get("entity", {}).get("id")
+            entity     = event.get("payload", {}).get("payment", {}).get("entity", {})
+            order_id   = entity.get("order_id")
+            payment_id = entity.get("id")
             if order_id:
-                reg = mysql_service.get_single_record("seminar_registrations", {"razorpay_order_id": order_id})
-                if reg and reg.get("payment_status") != "completed":
-                    mysql_service.update_record(
-                        "seminar_registrations",
-                        {"payment_status": "completed", "payment_id": payment_id,
-                         "payment_date": datetime.now(), "status": "confirmed", "updated_at": datetime.now()},
-                        {"razorpay_order_id": order_id},
-                    )
-                    try:
-                        mysql_service.execute_raw(
-                            "UPDATE seminars SET enrolled_count = enrolled_count + 1 WHERE id = %s",
-                            [reg["seminar_id"]],
-                        )
-                    except Exception:
-                        pass
+                row = db.execute(text(
+                    "SELECT * FROM seminar_registrations WHERE razorpay_order_id = :oid"
+                ), {"oid": order_id}).fetchone()
+                if row:
+                    reg = _row(row)
+                    if reg.get("payment_status") != "completed":
+                        now = datetime.now()
+                        db.execute(text("""
+                            UPDATE seminar_registrations
+                            SET payment_status = 'completed', payment_id = :pid,
+                                payment_date = :now, status = 'confirmed', updated_at = :now
+                            WHERE razorpay_order_id = :oid
+                        """), {"pid": payment_id, "now": now, "oid": order_id})
+                        db.execute(text(
+                            "UPDATE seminars SET enrolled_count = enrolled_count + 1 WHERE id = :sid"
+                        ), {"sid": reg["seminar_id"]})
+                        db.commit()
 
         elif event_type == "payment.failed":
             order_id = event.get("payload", {}).get("payment", {}).get("entity", {}).get("order_id")
             if order_id:
-                mysql_service.update_record(
-                    "seminar_registrations",
-                    {"payment_status": "failed", "updated_at": datetime.now()},
-                    {"razorpay_order_id": order_id},
-                )
+                db.execute(text("""
+                    UPDATE seminar_registrations
+                    SET payment_status = 'failed', updated_at = :now
+                    WHERE razorpay_order_id = :oid
+                """), {"now": datetime.now(), "oid": order_id})
+                db.commit()
 
         return JSONResponse(status_code=200, content={"status": "ok"})
     except Exception as e:
         logger.error(f"Seminar webhook error: {e}")
         return JSONResponse(status_code=500, content={"error": "Webhook processing failed"})
-
-
-# ============================================================
-# PUBLIC: GET REGISTRATION (for confirmation page)
-# ============================================================
-
-@router.get("/registration/{registration_id}")
-async def get_registration(registration_id: str):
-    """Get seminar registration details."""
-    try:
-        reg = mysql_service.get_single_record("seminar_registrations", {"registration_id": registration_id})
-        if not reg:
-            raise HTTPException(status_code=404, detail="Registration not found")
-        seminar = mysql_service.get_single_record("seminars", {"id": reg.get("seminar_id")})
-        return {
-            "ok": True,
-            "data": {
-                "registration": reg,
-                "seminar": _fmt_seminar(seminar) if seminar else None,
-            },
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))

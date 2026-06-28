@@ -677,21 +677,27 @@ async def submit_seminar_enquiry(request: Request):
         if not full_name or not email or not mobile:
             raise HTTPException(status_code=400, detail="full_name, email, and mobile are required")
 
+        from sqlalchemy import text as _text
+        from database import get_db as _get_db
         enquiry_id = "ENQ-" + datetime.now().strftime("%Y%m%d") + "-" + uuid.uuid4().hex[:6].upper()
-        record = {
-            "id":          str(uuid.uuid4()),
-            "enquiry_id":  enquiry_id,
-            "full_name":   full_name,
-            "email":       email,
-            "mobile":      mobile,
-            "company":     (body.get("company") or "").strip() or None,
-            "message":     (body.get("message") or "").strip() or None,
-            "status":      "new",
-            "source":      body.get("source") or "seminars_page",
-            "created_at":  datetime.now(),
-            "updated_at":  datetime.now(),
-        }
-        mysql_service.insert_record("seminar_enquiries", record)
+        now = datetime.now()
+        _db = next(_get_db())
+        _db.execute(_text("""
+            INSERT INTO seminar_enquiries (id, enquiry_id, full_name, email, mobile, company, message, status, source, created_at, updated_at)
+            VALUES (:id, :enquiry_id, :full_name, :email, :mobile, :company, :message, 'new', :source, :created_at, :updated_at)
+        """), {
+            "id":         str(uuid.uuid4()),
+            "enquiry_id": enquiry_id,
+            "full_name":  full_name,
+            "email":      email,
+            "mobile":     mobile,
+            "company":    (body.get("company") or "").strip() or None,
+            "message":    (body.get("message") or "").strip() or None,
+            "source":     body.get("source") or "seminars_page",
+            "created_at": now,
+            "updated_at": now,
+        })
+        _db.commit()
         logger.info(f"Seminar enquiry submitted: {enquiry_id} from {email}")
         return {"ok": True, "data": {"enquiry_id": enquiry_id, "message": "Enquiry received. We'll be in touch soon."}}
 
@@ -772,18 +778,25 @@ async def update_seminar_enquiry_status(request: Request, enquiry_id: str):
         if new_status and new_status not in allowed_statuses:
             raise HTTPException(status_code=400, detail=f"status must be one of {allowed_statuses}")
 
-        existing = mysql_service.get_single_record("seminar_enquiries", {"id": enquiry_id})
-        if not existing:
+        from sqlalchemy import text as _text
+        from database import get_db as _get_db
+        _db  = next(_get_db())
+        row  = _db.execute(_text("SELECT id FROM seminar_enquiries WHERE id = :id"), {"id": enquiry_id}).fetchone()
+        if not row:
             raise HTTPException(status_code=404, detail="Enquiry not found")
 
-        update = {"updated_at": datetime.now()}
+        set_parts = ["updated_at = :updated_at"]
+        params    = {"updated_at": datetime.now(), "id": enquiry_id}
         if new_status:
-            update["status"] = new_status
+            set_parts.append("status = :status")
+            params["status"] = new_status
         if new_notes is not None:
-            update["notes"] = new_notes
+            set_parts.append("notes = :notes")
+            params["notes"] = new_notes
 
-        mysql_service.update_record("seminar_enquiries", update, {"id": enquiry_id})
-        return {"ok": True, "data": {"id": enquiry_id, **update}}
+        _db.execute(_text(f"UPDATE seminar_enquiries SET {', '.join(set_parts)} WHERE id = :id"), params)
+        _db.commit()
+        return {"ok": True, "data": {"id": enquiry_id, "updated": True}}
 
     except HTTPException:
         raise
@@ -849,8 +862,10 @@ async def create_admin_seminar(request: Request, body: dict = Body(...)):
     """Create a new seminar. Admin only."""
     require_admin(request)
     import json as _json
+    from sqlalchemy import text
+    from database import get_db
     try:
-        title = (body.get("title") or "").strip()
+        title        = (body.get("title") or "").strip()
         seminar_date = body.get("seminar_date")
         if not title or not seminar_date:
             raise HTTPException(status_code=400, detail="title and seminar_date are required")
@@ -865,8 +880,31 @@ async def create_admin_seminar(request: Request, body: dict = Body(...)):
             except Exception:
                 topics = _json.dumps([t.strip() for t in topics.split(",") if t.strip()])
 
-        record = {
-            "id":                 str(uuid.uuid4()),
+        new_id = str(uuid.uuid4())
+        now    = datetime.now()
+        db     = next(get_db())
+        db.execute(text("""
+            INSERT INTO seminars (
+                id, seminar_id, title, short_desc, description,
+                seminar_date, seminar_time, end_time, duration_label,
+                mode, venue, venue_address, city, meeting_link,
+                price_inr, early_bird_price, early_bird_deadline,
+                capacity, enrolled_count,
+                speaker_name, speaker_bio, speaker_image_url,
+                topics, image_url, is_active, is_featured,
+                created_at, updated_at
+            ) VALUES (
+                :id, :seminar_id, :title, :short_desc, :description,
+                :seminar_date, :seminar_time, :end_time, :duration_label,
+                :mode, :venue, :venue_address, :city, :meeting_link,
+                :price_inr, :early_bird_price, :early_bird_deadline,
+                :capacity, 0,
+                :speaker_name, :speaker_bio, :speaker_image_url,
+                :topics, :image_url, :is_active, :is_featured,
+                :created_at, :updated_at
+            )
+        """), {
+            "id":                 new_id,
             "seminar_id":         seminar_id,
             "title":              title,
             "short_desc":         (body.get("short_desc") or "").strip() or None,
@@ -884,20 +922,19 @@ async def create_admin_seminar(request: Request, body: dict = Body(...)):
             "early_bird_price":   int(body.get("early_bird_price")) if body.get("early_bird_price") else None,
             "early_bird_deadline": body.get("early_bird_deadline") or None,
             "capacity":           int(body.get("capacity")) if body.get("capacity") else None,
-            "enrolled_count":     0,
             "speaker_name":       (body.get("speaker_name") or "").strip() or None,
             "speaker_bio":        (body.get("speaker_bio") or "").strip() or None,
             "speaker_image_url":  (body.get("speaker_image_url") or "").strip() or None,
             "topics":             topics or None,
             "image_url":          (body.get("image_url") or "").strip() or None,
-            "is_active":          bool(body.get("is_active", True)),
-            "is_featured":        bool(body.get("is_featured", False)),
-            "created_at":         datetime.now(),
-            "updated_at":         datetime.now(),
-        }
-        mysql_service.insert_record("seminars", record)
+            "is_active":          1 if body.get("is_active", True) else 0,
+            "is_featured":        1 if body.get("is_featured", False) else 0,
+            "created_at":         now,
+            "updated_at":         now,
+        })
+        db.commit()
         logger.info(f"Seminar created: {seminar_id} — {title}")
-        return {"ok": True, "data": {"seminar_id": seminar_id, "id": record["id"], "title": title}}
+        return {"ok": True, "data": {"seminar_id": seminar_id, "id": new_id, "title": title}}
     except HTTPException:
         raise
     except Exception as e:
@@ -910,9 +947,12 @@ async def update_admin_seminar(request: Request, seminar_id: str, body: dict = B
     """Update a seminar by its UUID id. Admin only."""
     require_admin(request)
     import json as _json
+    from sqlalchemy import text
+    from database import get_db
     try:
-        existing = mysql_service.get_single_record("seminars", {"id": seminar_id})
-        if not existing:
+        db  = next(get_db())
+        row = db.execute(text("SELECT id FROM seminars WHERE id = :id"), {"id": seminar_id}).fetchone()
+        if not row:
             raise HTTPException(status_code=404, detail="Seminar not found")
 
         allowed = {
@@ -927,8 +967,12 @@ async def update_admin_seminar(request: Request, seminar_id: str, body: dict = B
             payload["topics"] = _json.dumps(payload["topics"])
         if "price_inr" in payload:
             payload["price_inr"] = int(payload["price_inr"] or 0)
+
+        set_parts = ", ".join(f"{k} = :{k}" for k in payload)
         payload["updated_at"] = datetime.now()
-        mysql_service.update_record("seminars", payload, {"id": seminar_id})
+        payload["_id"] = seminar_id
+        db.execute(text(f"UPDATE seminars SET {set_parts}, updated_at = :updated_at WHERE id = :_id"), payload)
+        db.commit()
         return {"ok": True, "data": {"id": seminar_id, "updated": True}}
     except HTTPException:
         raise
@@ -941,13 +985,19 @@ async def update_admin_seminar(request: Request, seminar_id: str, body: dict = B
 async def toggle_admin_seminar(request: Request, seminar_id: str):
     """Toggle is_active for a seminar. Admin only."""
     require_admin(request)
+    from sqlalchemy import text
+    from database import get_db
     try:
-        existing = mysql_service.get_single_record("seminars", {"id": seminar_id})
-        if not existing:
+        db  = next(get_db())
+        row = db.execute(text("SELECT id, is_active FROM seminars WHERE id = :id"), {"id": seminar_id}).fetchone()
+        if not row:
             raise HTTPException(status_code=404, detail="Seminar not found")
-        new_state = not bool(existing.get("is_active", True))
-        mysql_service.update_record("seminars", {"is_active": new_state, "updated_at": datetime.now()}, {"id": seminar_id})
-        return {"ok": True, "data": {"id": seminar_id, "is_active": new_state}}
+        new_state = 0 if row.is_active else 1
+        db.execute(text(
+            "UPDATE seminars SET is_active = :s, updated_at = :now WHERE id = :id"
+        ), {"s": new_state, "now": datetime.now(), "id": seminar_id})
+        db.commit()
+        return {"ok": True, "data": {"id": seminar_id, "is_active": bool(new_state)}}
     except HTTPException:
         raise
     except Exception as e:
@@ -958,15 +1008,21 @@ async def toggle_admin_seminar(request: Request, seminar_id: str):
 async def delete_admin_seminar(request: Request, seminar_id: str):
     """Delete a seminar (only if no confirmed registrations). Super Admin only."""
     require_super_admin(request)
+    from sqlalchemy import text
+    from database import get_db
     try:
-        existing = mysql_service.get_single_record("seminars", {"id": seminar_id})
-        if not existing:
+        db  = next(get_db())
+        row = db.execute(text("SELECT id FROM seminars WHERE id = :id"), {"id": seminar_id}).fetchone()
+        if not row:
             raise HTTPException(status_code=404, detail="Seminar not found")
-        confirmed = mysql_service.get_records("seminar_registrations", {"seminar_id": seminar_id, "status": "confirmed"})
-        if confirmed:
-            raise HTTPException(status_code=400, detail=f"Cannot delete: {len(confirmed)} confirmed registrations exist. Deactivate instead.")
-        mysql_service.delete_record("seminar_registrations", {"seminar_id": seminar_id})
-        mysql_service.delete_record("seminars", {"id": seminar_id})
+        confirmed = db.execute(text(
+            "SELECT COUNT(*) AS cnt FROM seminar_registrations WHERE seminar_id = :id AND status = 'confirmed'"
+        ), {"id": seminar_id}).fetchone()
+        if confirmed and confirmed.cnt > 0:
+            raise HTTPException(status_code=400, detail=f"Cannot delete: {confirmed.cnt} confirmed registrations exist. Deactivate instead.")
+        db.execute(text("DELETE FROM seminar_registrations WHERE seminar_id = :id"), {"id": seminar_id})
+        db.execute(text("DELETE FROM seminars WHERE id = :id"), {"id": seminar_id})
+        db.commit()
         return {"ok": True, "data": {"id": seminar_id, "deleted": True}}
     except HTTPException:
         raise
@@ -1041,17 +1097,21 @@ async def list_seminar_registrations(
 async def mark_seminar_attendance(request: Request, registration_id: str):
     """Toggle attendance_marked for a seminar registration. Admin only."""
     require_admin(request)
+    from sqlalchemy import text
+    from database import get_db
     try:
-        reg = mysql_service.get_single_record("seminar_registrations", {"registration_id": registration_id})
-        if not reg:
+        db  = next(get_db())
+        row = db.execute(text(
+            "SELECT attendance_marked FROM seminar_registrations WHERE registration_id = :rid"
+        ), {"rid": registration_id}).fetchone()
+        if not row:
             raise HTTPException(status_code=404, detail="Registration not found")
-        new_val = not bool(reg.get("attendance_marked", False))
-        mysql_service.update_record(
-            "seminar_registrations",
-            {"attendance_marked": new_val, "updated_at": datetime.now()},
-            {"registration_id": registration_id},
-        )
-        return {"ok": True, "data": {"registration_id": registration_id, "attendance_marked": new_val}}
+        new_val = 0 if row.attendance_marked else 1
+        db.execute(text(
+            "UPDATE seminar_registrations SET attendance_marked = :v, updated_at = :now WHERE registration_id = :rid"
+        ), {"v": new_val, "now": datetime.now(), "rid": registration_id})
+        db.commit()
+        return {"ok": True, "data": {"registration_id": registration_id, "attendance_marked": bool(new_val)}}
     except HTTPException:
         raise
     except Exception as e:
