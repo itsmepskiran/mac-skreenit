@@ -1,3 +1,4 @@
+import json
 from typing import Optional, Dict, Any, List
 from services.mysql_service import MySQLService
 from utils_others.logger import logger
@@ -311,8 +312,12 @@ class DashboardService:
             # Enrich job data with skills from jobs table
             for job in jobs:
                 job["company_name"] = companies_map.get(job["company_id"], "Unknown Company")
-                # Skills are now stored directly in the jobs table as JSON
-                job["skills"] = job.get("skills", [])  # Get skills from jobs table or empty array
+                # Parse skills JSON string → list
+                skills_raw = job.get("skills", "[]")
+                try:
+                    job["skills"] = json.loads(skills_raw) if isinstance(skills_raw, str) else (skills_raw or [])
+                except Exception:
+                    job["skills"] = []
                 
             # Basic text search filter
             if search:
