@@ -392,7 +392,7 @@ async def get_dashboard_stats(request: Request):
                    COALESCE(SUM(us.amount_paid), 0) AS revenue,
                    COUNT(*) AS count
             FROM user_subscriptions us
-            JOIN pricing_plans pp ON pp.id = us.plan_id
+            JOIN pricing_plans pp ON pp.id COLLATE utf8mb4_unicode_ci = us.plan_id COLLATE utf8mb4_unicode_ci
             WHERE us.status NOT IN ('pending','cancelled')
             GROUP BY pp.service_type
             ORDER BY revenue DESC
@@ -431,8 +431,8 @@ async def get_dashboard_stats(request: Request):
                    COALESCE(u.full_name, u.email, 'Unknown') AS user_name,
                    u.email
             FROM user_subscriptions us
-            JOIN pricing_plans pp ON pp.id = us.plan_id
-            LEFT JOIN users u ON u.id = us.user_id
+            JOIN pricing_plans pp ON pp.id COLLATE utf8mb4_unicode_ci = us.plan_id COLLATE utf8mb4_unicode_ci
+            LEFT JOIN users u ON u.id COLLATE utf8mb4_unicode_ci = us.user_id COLLATE utf8mb4_unicode_ci
             WHERE us.status != 'pending'
             ORDER BY us.created_at DESC
             LIMIT 8
@@ -441,7 +441,7 @@ async def get_dashboard_stats(request: Request):
         def row_to_dict(row):
             return dict(row._mapping) if row else {}
 
-        total_revenue = float((training.revenue or 0) + (subs.revenue or 0))
+        total_revenue = float(training.revenue or 0) + float(subs.revenue or 0)
 
         # Seminar stats (table may not exist yet; safe fallback)
         sem_revenue = 0.0
@@ -474,7 +474,7 @@ async def get_dashboard_stats(request: Request):
         except Exception as sem_err:
             logger.warning(f"Seminar stats unavailable (table may not exist): {sem_err}")
 
-        total_revenue = float((training.revenue or 0) + (subs.revenue or 0) + sem_revenue)
+        total_revenue = float(training.revenue or 0) + float(subs.revenue or 0) + sem_revenue
 
         return {
             "ok": True,
@@ -633,8 +633,8 @@ async def list_subscriptions_admin(
                    COALESCE(u.full_name, u.email, 'Unknown') AS user_name,
                    u.email
             FROM user_subscriptions us
-            JOIN pricing_plans pp ON pp.id = us.plan_id
-            LEFT JOIN users u ON u.id = us.user_id
+            JOIN pricing_plans pp ON pp.id COLLATE utf8mb4_unicode_ci = us.plan_id COLLATE utf8mb4_unicode_ci
+            LEFT JOIN users u ON u.id COLLATE utf8mb4_unicode_ci = us.user_id COLLATE utf8mb4_unicode_ci
             WHERE {where_str}
             ORDER BY us.created_at DESC
             LIMIT :limit OFFSET :offset
@@ -644,8 +644,8 @@ async def list_subscriptions_admin(
         total_row = db.execute(text(f"""
             SELECT COUNT(*) AS total
             FROM user_subscriptions us
-            JOIN pricing_plans pp ON pp.id = us.plan_id
-            LEFT JOIN users u ON u.id = us.user_id
+            JOIN pricing_plans pp ON pp.id COLLATE utf8mb4_unicode_ci = us.plan_id COLLATE utf8mb4_unicode_ci
+            LEFT JOIN users u ON u.id COLLATE utf8mb4_unicode_ci = us.user_id COLLATE utf8mb4_unicode_ci
             WHERE {where_str}
         """), count_params).fetchone()
 
