@@ -447,6 +447,7 @@ async def get_dashboard_stats(request: Request):
         sem_revenue = 0.0
         sem_total = sem_paid = sem_upcoming = 0
         recent_sem_regs = []
+        sem_by_title = []
         try:
             sem_stats = db.execute(text("""
                 SELECT
@@ -471,8 +472,20 @@ async def get_dashboard_stats(request: Request):
                 LIMIT 8
             """)).fetchall()
             recent_sem_regs = [row_to_dict(r) for r in recent_sem_rows]
+
+            sem_by_title_rows = db.execute(text("""
+                SELECT seminar_title,
+                       COUNT(*) AS count,
+                       COALESCE(SUM(CASE WHEN payment_status='completed' THEN amount ELSE 0 END), 0) AS revenue
+                FROM seminar_registrations
+                GROUP BY seminar_title
+                ORDER BY revenue DESC
+                LIMIT 8
+            """)).fetchall()
+            sem_by_title = [row_to_dict(r) for r in sem_by_title_rows]
         except Exception as sem_err:
             logger.warning(f"Seminar stats unavailable (table may not exist): {sem_err}")
+            sem_by_title = []
 
         total_revenue = float(training.revenue or 0) + float(subs.revenue or 0) + sem_revenue
 
@@ -501,7 +514,8 @@ async def get_dashboard_stats(request: Request):
                     "upcoming_count":      sem_upcoming,
                     "revenue":             sem_revenue,
                 },
-                "revenue_by_type": [row_to_dict(r) for r in rev_by_type],
+                "revenue_by_type":    [row_to_dict(r) for r in rev_by_type],
+                "seminar_by_title":   sem_by_title,
                 "training_by_course": [row_to_dict(r) for r in train_by_course],
                 "recent_training": [row_to_dict(r) for r in recent_training],
                 "recent_subscriptions": [row_to_dict(r) for r in recent_subs],
@@ -592,6 +606,40 @@ async def list_training_registrations(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.patch("/training-registrations/{registration_id}/payment-status")
+async def update_training_payment_status(request: Request, registration_id: str, body: dict = Body(...)):
+    """Update payment_status for a training registration. Admin only."""
+    require_admin(request)
+    from sqlalchemy import text
+    from database import get_db
+    VALID = {'pending', 'completed', 'failed'}
+    new_status = (body.get('payment_status') or '').strip().lower()
+    if new_status not in VALID:
+        raise HTTPException(status_code=400, detail=f"Invalid status. Must be one of: {', '.join(VALID)}")
+    try:
+        db = next(get_db())
+        row = db.execute(text(
+            "SELECT registration_id FROM training_registrations WHERE registration_id = :rid"
+        ), {"rid": registration_id}).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Registration not found")
+        now = datetime.now()
+        db.execute(text("""
+            UPDATE training_registrations
+            SET payment_status = :status,
+                payment_date = CASE WHEN :status = 'completed' THEN :now ELSE payment_date END,
+                updated_at = :now
+            WHERE registration_id = :rid
+        """), {"status": new_status, "now": now, "rid": registration_id})
+        db.commit()
+        return {"ok": True, "payment_status": new_status}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Update training payment status failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/subscriptions")
 async def list_subscriptions_admin(
     request: Request,
@@ -658,6 +706,37 @@ async def list_subscriptions_admin(
         }
     except Exception as e:
         logger.error(f"List subscriptions failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.patch("/subscriptions/{subscription_id}/status")
+async def update_subscription_status(request: Request, subscription_id: str, body: dict = Body(...)):
+    """Update status for a user subscription. Admin only."""
+    require_admin(request)
+    from sqlalchemy import text
+    from database import get_db
+    VALID = {'pending', 'active', 'trial', 'cancelled', 'expired'}
+    new_status = (body.get('status') or '').strip().lower()
+    if new_status not in VALID:
+        raise HTTPException(status_code=400, detail=f"Invalid status. Must be one of: {', '.join(VALID)}")
+    try:
+        db = next(get_db())
+        row = db.execute(text(
+            "SELECT id FROM user_subscriptions WHERE id = :sid"
+        ), {"sid": subscription_id}).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Subscription not found")
+        db.execute(text("""
+            UPDATE user_subscriptions
+            SET status = :status, updated_at = :now
+            WHERE id = :sid
+        """), {"status": new_status, "now": datetime.now(), "sid": subscription_id})
+        db.commit()
+        return {"ok": True, "status": new_status}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Update subscription status failed: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -1090,6 +1169,41 @@ async def list_seminar_registrations(
         }
     except Exception as e:
         logger.error(f"List seminar registrations failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.patch("/seminar-registrations/{registration_id}/payment-status")
+async def update_seminar_payment_status(request: Request, registration_id: str, body: dict = Body(...)):
+    """Update payment_status for a seminar registration. Admin only."""
+    require_admin(request)
+    from sqlalchemy import text
+    from database import get_db
+    VALID = {'pending', 'completed', 'failed'}
+    new_status = (body.get('payment_status') or '').strip().lower()
+    if new_status not in VALID:
+        raise HTTPException(status_code=400, detail=f"Invalid status. Must be one of: {', '.join(VALID)}")
+    try:
+        db = next(get_db())
+        row = db.execute(text(
+            "SELECT registration_id FROM seminar_registrations WHERE registration_id = :rid"
+        ), {"rid": registration_id}).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Registration not found")
+        now = datetime.now()
+        db.execute(text("""
+            UPDATE seminar_registrations
+            SET payment_status = :status,
+                status = CASE WHEN :status = 'completed' THEN 'confirmed' ELSE status END,
+                payment_date = CASE WHEN :status = 'completed' THEN :now ELSE payment_date END,
+                updated_at = :now
+            WHERE registration_id = :rid
+        """), {"status": new_status, "now": now, "rid": registration_id})
+        db.commit()
+        return {"ok": True, "payment_status": new_status}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Update seminar payment status failed: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
