@@ -39,7 +39,12 @@ class OllamaService:
         primary  = base_url or os.getenv("OLLAMA_URL_PRIMARY") or os.getenv("ollama_base_url", "")
         fallback = os.getenv("OLLAMA_URL_FALLBACK", "")
         self._candidate_urls: list = [u.rstrip("/") for u in [primary, fallback] if u]
-        self.base_url = self._candidate_urls[0]  # resolved lazily by _resolve_active_url()
+        self.base_url = self._candidate_urls[0] if self._candidate_urls else ""
+        # Human-readable labels for each candidate URL
+        _label_names = ["Mac (Primary)", "Windows (Fallback)", "Host-3", "Host-4"]
+        self._url_labels: dict = {
+            url: _label_names[i] for i, url in enumerate(self._candidate_urls)
+        }
         self.models = {
             'general': 'mistral',
             'technical': 'codellama',
@@ -47,6 +52,10 @@ class OllamaService:
         }
         self.cache = {}
         self.cache_ttl = 3600
+
+    def _host_label(self) -> str:
+        """Return a readable label for the currently active Ollama host."""
+        return f"{self._url_labels.get(self.base_url, 'Unknown')} [{self.base_url}]"
 
     def _resolve_active_url(self) -> Optional[str]:
         """Return the first candidate URL that has Ollama running with a loaded model.
@@ -58,19 +67,24 @@ class OllamaService:
             try:
                 resp = requests.get(f"{url}/api/tags", timeout=5)
                 if resp.status_code == 200 and resp.json().get("models"):
-                    if url != self.base_url:
-                        logger.info("Ollama: switched to %s", url)
-                        self.base_url = url
+                    switched = url != self.base_url
+                    self.base_url = url
+                    label = self._url_labels.get(url, url)
+                    if switched:
+                        logger.warning("Ollama: PRIMARY unavailable — switched to %s [%s]", label, url)
+                    else:
+                        logger.info("Ollama: active host = %s [%s]", label, url)
                     return url
             except Exception:
-                logger.warning("Ollama not reachable at %s, trying next", url)
+                logger.warning("Ollama: unreachable at %s [%s], trying next",
+                               self._url_labels.get(url, url), url)
         return None
 
     def is_ollama_available(self) -> bool:
         """Check if any Ollama host is running with at least one model loaded."""
         available = self._resolve_active_url() is not None
         if not available:
-            logger.warning("Ollama not available at any configured URL: %s", self._candidate_urls)
+            logger.error("Ollama: no host available — checked %s", self._candidate_urls)
         return available
 
     def generate_questions(
@@ -98,11 +112,14 @@ class OllamaService:
             logger.warning("No suitable Ollama model found, returning empty list")
             return []
 
+        logger.info("Ollama [questions] host=%s  assessment=%s", self._host_label(), assessment_name)
         prompt = self._create_prompt(assessment_name, assessment_desc, skills, num_questions)
 
         try:
             questions = self._call_ollama(model, prompt, num_questions)
             self.cache[cache_key] = (questions, datetime.now())
+            logger.info("Ollama [questions] done  host=%s  assessment=%s  count=%d",
+                        self._host_label(), assessment_name, len(questions))
             return questions
         except Exception as e:
             logger.error(f"Failed to generate questions: {str(e)}")
@@ -130,6 +147,7 @@ class OllamaService:
         if not model:
             return []
 
+        logger.info("Ollama [mcq] host=%s  assessment=%s", self._host_label(), assessment_name)
         prompt = f"""You are an expert assessment designer. Generate exactly {num_questions} multiple-choice questions for:
 
 Assessment: {assessment_name}
@@ -161,7 +179,8 @@ Rules:
             response.raise_for_status()
             questions = self._parse_mcq_response(response.json().get("response", ""), num_questions)
             self.cache[cache_key] = (questions, datetime.now())
-            logger.info(f"Generated {len(questions)} MCQ questions for {assessment_name}")
+            logger.info("Ollama [mcq] done  host=%s  assessment=%s  count=%d",
+                        self._host_label(), assessment_name, len(questions))
             return questions
         except Exception as e:
             logger.error(f"MCQ generation failed: {str(e)}")
@@ -327,6 +346,7 @@ Questions:"""
         if not model:
             return []
 
+        logger.info("Ollama [coding] host=%s  platform=%s", self._host_label(), platform)
         prompt = f"""Generate exactly {num_questions} beginner coding problems for {platform}.
 
 Each problem should be solvable in 20-30 minutes by an entry-level programmer.
@@ -350,7 +370,8 @@ Problems:"""
             for q in questions:
                 q['platform'] = platform
             self.cache[cache_key] = (questions, datetime.now())
-            logger.info(f"Generated {len(questions)} coding challenges for {platform}")
+            logger.info("Ollama [coding] done  host=%s  platform=%s  count=%d",
+                        self._host_label(), platform, len(questions))
             return questions
         except Exception as e:
             logger.error(f"Coding challenge generation failed for {platform}: {str(e)}")
@@ -385,6 +406,7 @@ Problems:"""
         if not model:
             return {}
 
+        logger.info("Ollama [voice_test] host=%s  assessment=%s", self._host_label(), assessment_name)
         prompt = f"""You are designing a spoken English assessment for the following role/context.
 
 Assessment: {assessment_name}
@@ -439,7 +461,8 @@ Generate fresh assessment content. Return ONLY valid JSON — no extra text, no 
                 logger.warning("Voice test content: missing required keys in Ollama response")
                 return {}
             self.cache[cache_key] = (data, datetime.now())
-            logger.info(f"Generated voice test content for {assessment_name}")
+            logger.info("Ollama [voice_test] done  host=%s  assessment=%s",
+                        self._host_label(), assessment_name)
             return data
         except Exception as e:
             logger.error(f"Voice test content generation failed: {e}")
@@ -507,7 +530,8 @@ Generate fresh assessment content. Return ONLY valid JSON — no extra text, no 
                 return self._get_typing_fallback(duration_minutes)
 
             self.cache[cache_key] = (text, datetime.now())
-            logger.info(f"Generated typing paragraph: {len(text.split())} words for {duration_minutes}min test")
+            logger.info("Ollama [typing] done  host=%s  words=%d  duration=%dmin",
+                        self._host_label(), len(text.split()), duration_minutes)
             return text
         except Exception as e:
             logger.error(f"Typing paragraph generation failed: {e}")
@@ -597,6 +621,7 @@ Generate fresh assessment content. Return ONLY valid JSON — no extra text, no 
         ollama_result = None
 
         if self.is_ollama_available() and (text_items or scorable):
+            logger.info("Ollama [analysis] host=%s  assessment=%s", self._host_label(), assessment_name)
             model = self._resolve_model('general')
             if model:
                 try:
@@ -645,6 +670,9 @@ Scoring: 90-100=Exceptional, 80-89=Excellent, 70-79=Very Good, 60-69=Good, 50-59
                         end = text_out.rfind('}') + 1
                         if start != -1 and end > start:
                             ollama_result = json.loads(text_out[start:end])
+                            logger.info("Ollama [analysis] done  host=%s  assessment=%s  score=%s",
+                                        self._host_label(), assessment_name,
+                                        ollama_result.get('overall_score'))
                 except Exception as e:
                     logger.warning(f"Ollama assessment analysis failed: {e}")
 

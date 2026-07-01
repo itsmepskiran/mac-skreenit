@@ -11,6 +11,7 @@ import json
 import uuid
 import time
 import threading
+import random
 
 from database import get_db
 from sqlalchemy.orm import Session
@@ -64,6 +65,28 @@ def _get_mcq_keys(token: Optional[str]) -> dict:
         if not data or data.get("_exp", 0) < time.monotonic():
             return {}
         return {k: v for k, v in data.items() if k != "_exp"}
+
+
+def _shuffle_mcq_options(questions: list) -> list:
+    """Randomly reorder each question's options and update the correct index.
+
+    Prevents anyone from gaming the test by always picking option A.
+    Works for both Ollama-generated and hardcoded fallback questions.
+    """
+    result = []
+    for q in questions:
+        q = dict(q)
+        options = list(q.get("options") or [])
+        correct_idx = int(q.get("correct", 0))
+        if len(options) < 2 or correct_idx >= len(options):
+            result.append(q)
+            continue
+        correct_text = options[correct_idx]
+        random.shuffle(options)
+        q["options"] = options
+        q["correct"] = options.index(correct_text)
+        result.append(q)
+    return result
 
 # Assessment keys that are free for all authenticated users (service_type = 'general_plan')
 FREE_ASSESSMENT_KEYS: set = {
@@ -727,20 +750,21 @@ async def get_assessment_questions(
             except Exception as e:
                 logger.warning(f"Ollama generation failed: {str(e)}")
 
-        # Store MCQ answer keys and issue a token so finish_assessment can grade correctly
+        # Resolve MCQ questions (Ollama or fallback), shuffle options, store keys
         mcq_token = None
         effective_mcq = ollama_mcq or []
         if not effective_mcq:
             from routers.assessment_formats import MCQ_FALLBACK
-            effective_mcq = MCQ_FALLBACK.get(assessment_key, [])
+            effective_mcq = list(MCQ_FALLBACK.get(assessment_key, []))
         if effective_mcq:
+            effective_mcq = _shuffle_mcq_options(effective_mcq)
             mcq_token = _store_mcq_keys(effective_mcq)
 
         sections = build_sections(
             assessment_key, metadata,
             ollama_questions=ollama_questions or None,
             format_override=format_type,
-            ollama_mcq=ollama_mcq or None,
+            ollama_mcq=effective_mcq or None,  # always use shuffled copy
             platform=platform,
             ollama_voice_content=ollama_voice_content or None,
         )
