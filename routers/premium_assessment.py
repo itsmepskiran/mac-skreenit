@@ -721,7 +721,14 @@ async def get_assessment_questions(
         ollama_voice_content = {}
         if ollama_service.is_ollama_available():
             try:
-                if format_type == 'mcq':
+                if format_type == 'psychometric':
+                    ollama_mcq = ollama_service.generate_psychometric_questions(
+                        assessment_name=metadata['name'],
+                        assessment_desc=metadata['description'],
+                        skills=skills_str,
+                        num_questions=metadata.get('questions', 10),
+                    )
+                elif format_type == 'mcq':
                     ollama_mcq = ollama_service.generate_mcq_questions(
                         assessment_name=metadata['name'],
                         assessment_desc=metadata['description'],
@@ -750,15 +757,20 @@ async def get_assessment_questions(
             except Exception as e:
                 logger.warning(f"Ollama generation failed: {str(e)}")
 
-        # Resolve MCQ questions (Ollama or fallback), shuffle options, store keys
+        # Psychometric has no correct answers — skip token/grading entirely
+        # For regular MCQ: shuffle options so correct answer isn't always option A
         mcq_token = None
         effective_mcq = ollama_mcq or []
-        if not effective_mcq:
-            from routers.assessment_formats import MCQ_FALLBACK
-            effective_mcq = list(MCQ_FALLBACK.get(assessment_key, []))
-        if effective_mcq:
-            effective_mcq = _shuffle_mcq_options(effective_mcq)
-            mcq_token = _store_mcq_keys(effective_mcq)
+        if format_type == 'psychometric':
+            # Questions already have no 'correct' field; pass through as-is
+            pass
+        else:
+            if not effective_mcq:
+                from routers.assessment_formats import MCQ_FALLBACK
+                effective_mcq = list(MCQ_FALLBACK.get(assessment_key, []))
+            if effective_mcq:
+                effective_mcq = _shuffle_mcq_options(effective_mcq)
+                mcq_token = _store_mcq_keys(effective_mcq)
 
         sections = build_sections(
             assessment_key, metadata,
@@ -870,15 +882,20 @@ async def finish_assessment(
         mcq_correct = 0
         mcq_total = 0
 
+        # Psychometric assessments have no correct answers — skip grading entirely
+        is_psychometric = get_format_type(assessment_key) == 'psychometric'
+
         # Resolve MCQ answer keys from token first, then fallback dict
-        mcq_keys = _get_mcq_keys(finish_data.mcqToken)
-        if not mcq_keys:
-            try:
-                from routers.assessment_formats import MCQ_FALLBACK
-                fallback_items = MCQ_FALLBACK.get(assessment_key, [])
-                mcq_keys = {q['id']: q['correct'] for q in fallback_items if 'id' in q and 'correct' in q}
-            except Exception:
-                mcq_keys = {}
+        mcq_keys = {}
+        if not is_psychometric:
+            mcq_keys = _get_mcq_keys(finish_data.mcqToken)
+            if not mcq_keys:
+                try:
+                    from routers.assessment_formats import MCQ_FALLBACK
+                    fallback_items = MCQ_FALLBACK.get(assessment_key, [])
+                    mcq_keys = {q['id']: q['correct'] for q in fallback_items if 'id' in q and 'correct' in q}
+                except Exception:
+                    mcq_keys = {}
 
         # Collect per-row data; parse questionId = "{sectionId}_{itemId}"
         # questionId format: "s_mcq_q1" → section_id="s_mcq", item_id="q1"
@@ -889,7 +906,7 @@ async def finish_assessment(
             item_id    = r.questionId[last_under + 1:] if last_under != -1 else None
 
             is_correct = None
-            if r.type == 'mcq' and r.selectedIdx is not None and item_id:
+            if r.type == 'mcq' and r.selectedIdx is not None and item_id and not is_psychometric:
                 mcq_total += 1
                 correct_idx = mcq_keys.get(item_id)
                 if correct_idx is not None:

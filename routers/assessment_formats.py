@@ -40,7 +40,7 @@ ASSESSMENT_FORMAT_MAP: Dict[str, str] = {
     'gen_coding_basic':     'coding_test',
     'gen_typing':           'text_writing',
     'gen_aptitude':         'mcq',
-    'gen_psychometric':     'mcq',
+    'gen_psychometric':     'psychometric',
     'gen_attention_detail': 'mcq',
     'gen_english_prof':     'mcq',
     'gen_resume_quiz':      'text_writing',
@@ -54,6 +54,7 @@ FORMAT_DESCRIPTIONS: Dict[str, str] = {
     'text_writing': 'Written communication test. Compose professional emails, chat responses, or written analysis.',
     'coding_test': 'Technical coding test with real programming problems to solve in a code editor.',
     'mcq': 'Multiple-choice knowledge test. Select the best answer for each question.',
+    'psychometric': 'Situational judgement test. Read each scenario and choose the response that best reflects how you would genuinely act. There are no right or wrong answers — your choices reveal your natural work style and behavioural traits.',
 }
 
 VOICE_TEST_FORMATS: Dict[str, List[Dict]] = {
@@ -865,6 +866,27 @@ def build_sections(assessment_key: str, metadata: dict, ollama_questions: list =
             'exercise_type': 'code',
             'duration_per_item': 1800,
             'items': problems,
+        }]
+
+    elif fmt == 'psychometric':
+        # No correct answers — options map to behavioural traits, not right/wrong
+        raw_questions = ollama_mcq or MCQ_FALLBACK.get(assessment_key) or []
+        # Strip the 'correct' key so the frontend never knows which option was "intended"
+        questions = [{k: v for k, v in q.items() if k != 'correct'} for q in raw_questions]
+        if not questions:
+            questions = [
+                {'id': f'q{i}', 'content': f'Scenario {i}: How would you typically respond in a challenging workplace situation?',
+                 'options': ['Collaborate with the team to find a solution', 'Take charge and decide quickly', 'Analyse the situation carefully before acting', 'Seek guidance from a senior colleague']}
+                for i in range(1, metadata.get('questions', 10) + 1)
+            ]
+        return [{
+            'id': 's_psychometric',
+            'title': metadata.get('name', 'Psychometric Assessment'),
+            'instruction': 'Read each situation carefully and choose the response that most closely reflects how you would genuinely react. There are no right or wrong answers.',
+            'exercise_type': 'mcq',
+            'no_correct': True,
+            'duration_per_item': 60,
+            'items': questions,
         }]
 
     else:  # mcq

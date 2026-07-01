@@ -250,6 +250,10 @@ TIMEOUT_EXCLUDED_PATHS = {
     # AI generation endpoints manage their own timeouts internally
     "/api/v1/applicant/generate-interview-questions",
     "/api/v1/applicant/job-sample-questions",
+    # Assessment endpoints — Ollama generation can take 60-180s depending on model/load
+    "/api/v1/premium/assessment-questions",
+    "/api/v1/premium/assessment-finish",
+    "/api/v1/premium/typing-paragraph",
 }
 
 class TimeoutMiddleware(BaseHTTPMiddleware):
@@ -259,7 +263,11 @@ class TimeoutMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: StarletteRequest, call_next):
         path = request.url.path
-        is_excluded = path in TIMEOUT_EXCLUDED_PATHS or path.startswith("/api/v1/analytics/reanalyze/")
+        is_excluded = (
+            path in TIMEOUT_EXCLUDED_PATHS
+            or path.startswith("/api/v1/analytics/reanalyze/")
+            or path.startswith("/api/v1/premium/assessment-results/")
+        )
         
         if is_excluded:
             logger.info(f"Timeout middleware: Skipping timeout for {path}")

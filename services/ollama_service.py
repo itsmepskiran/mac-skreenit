@@ -25,6 +25,31 @@ class TaskType(Enum):
     QUESTION_GENERATION = "question_generation"
 
 
+# Per-host model maps — keyed by the human-readable label assigned in __init__.
+# Mac uses Metal GPU acceleration (24 GB unified RAM); Windows is CPU-heavy (4 GB VRAM).
+_HOST_MODELS: Dict[str, Dict[str, str]] = {
+    "Mac (Primary)": {
+        'general':   'llama3.1:8b',        # 4.7 GB — Metal-accelerated; better voice/MCQ quality
+        'technical': 'qwen2.5-coder:14b',  # 9.0 GB — purpose-built coder; SQL/JS/React/Python
+        'advanced':  'qwen3:14b',           # 9.0 GB — strong reasoning for system design
+        'analysis':  'llama3.2:3b',         # 2.0 GB — fast response scoring
+    },
+    "Windows (Fallback)": {
+        'general':   'llama3.2:3b',   # 2.0 GB — fits fully in 4 GB VRAM
+        'technical': 'codellama:7b',  # 3.8 GB — fits fully in 4 GB VRAM
+        'advanced':  'qwen2.5:14b',   # 9.0 GB — CPU offload; 64 GB RAM handles it
+        'analysis':  'llama3.2:3b',   # 2.0 GB — shared with general slot
+    },
+}
+
+_DEFAULT_MODELS: Dict[str, str] = {
+    'general':   'llama3.2:3b',
+    'technical': 'codellama:7b',
+    'advanced':  'qwen2.5:14b',
+    'analysis':  'llama3.2:3b',
+}
+
+
 class OllamaService:
     """Service for generating assessment questions using Ollama.
 
@@ -45,13 +70,14 @@ class OllamaService:
         self._url_labels: dict = {
             url: _label_names[i] for i, url in enumerate(self._candidate_urls)
         }
-        self.models = {
-            'general': 'mistral',
-            'technical': 'codellama',
-            'advanced': 'llama3',
-        }
         self.cache = {}
         self.cache_ttl = 3600
+
+    @property
+    def models(self) -> Dict[str, str]:
+        """Return the model map for the currently active Ollama host."""
+        label = self._url_labels.get(self.base_url, '')
+        return _HOST_MODELS.get(label, _DEFAULT_MODELS)
 
     def _host_label(self) -> str:
         """Return a readable label for the currently active Ollama host."""
@@ -95,14 +121,10 @@ class OllamaService:
         num_questions: int = 5,
         assessment_type: str = 'general'
     ) -> List[Dict[str, Any]]:
-        """Generate open-ended assessment questions using Ollama LLM"""
-        cache_key = f"{assessment_name}_{num_questions}"
-        if cache_key in self.cache:
-            cached_data, timestamp = self.cache[cache_key]
-            if datetime.now() - timestamp < timedelta(seconds=self.cache_ttl):
-                logger.info(f"Using cached questions for {assessment_name}")
-                return cached_data
+        """Generate open-ended assessment questions using Ollama LLM.
 
+        Not cached — each session should receive a fresh question set.
+        """
         if not self.is_ollama_available():
             logger.warning("Ollama not available, returning empty list")
             return []
@@ -117,12 +139,12 @@ class OllamaService:
 
         try:
             questions = self._call_ollama(model, prompt, num_questions)
-            self.cache[cache_key] = (questions, datetime.now())
             logger.info("Ollama [questions] done  host=%s  assessment=%s  count=%d",
                         self._host_label(), assessment_name, len(questions))
             return questions
         except Exception as e:
-            logger.error(f"Failed to generate questions: {str(e)}")
+            logger.error("Ollama [questions] failed  host=%s  assessment=%s  error=%s",
+                         self._host_label(), assessment_name, e)
             return []
 
     def generate_mcq_questions(
@@ -132,14 +154,10 @@ class OllamaService:
         skills: str,
         num_questions: int = 5,
     ) -> List[Dict[str, Any]]:
-        """Generate MCQ questions with 4 options using Ollama. Correct answer is always option A."""
-        cache_key = f"mcq_{assessment_name}_{num_questions}"
-        if cache_key in self.cache:
-            cached_data, timestamp = self.cache[cache_key]
-            if datetime.now() - timestamp < timedelta(seconds=self.cache_ttl):
-                logger.info(f"Using cached MCQ questions for {assessment_name}")
-                return cached_data
+        """Generate MCQ questions with 4 options using Ollama. Correct answer is always option A.
 
+        Not cached — each assessment session should receive a fresh, unique question set.
+        """
         if not self.is_ollama_available():
             return []
 
@@ -178,12 +196,74 @@ Rules:
             )
             response.raise_for_status()
             questions = self._parse_mcq_response(response.json().get("response", ""), num_questions)
-            self.cache[cache_key] = (questions, datetime.now())
             logger.info("Ollama [mcq] done  host=%s  assessment=%s  count=%d",
                         self._host_label(), assessment_name, len(questions))
             return questions
         except Exception as e:
             logger.error(f"MCQ generation failed: {str(e)}")
+            return []
+
+    def generate_psychometric_questions(
+        self,
+        assessment_name: str,
+        assessment_desc: str,
+        skills: str,
+        num_questions: int = 10,
+    ) -> List[Dict[str, Any]]:
+        """Generate situational judgement questions for psychometric assessments.
+
+        Each question presents a realistic workplace scenario with four options that
+        reflect different behavioural styles (e.g. collaborative, decisive, analytical,
+        supportive). There is NO correct answer — responses reveal personality traits.
+        Not cached — fresh scenarios per session.
+        """
+        if not self.is_ollama_available():
+            return []
+
+        model = self._resolve_model('general')
+        if not model:
+            return []
+
+        logger.info("Ollama [psychometric] host=%s  assessment=%s", self._host_label(), assessment_name)
+
+        prompt = f"""You are an occupational psychologist designing a workplace psychometric assessment.
+
+Assessment: {assessment_name}
+Description: {assessment_desc}
+Traits to assess: {skills}
+
+Generate exactly {num_questions} situational judgement questions. Each question describes a realistic workplace scenario with four response options. The options must NOT have a correct answer — each option reflects a different, equally valid behavioural style or personality trait (e.g. collaborative, decisive, analytical, supportive, empathetic, structured, flexible, cautious).
+
+Output ONLY in this exact format (no numbering, no extra text, blank line between questions):
+
+Q: <workplace scenario, 1-2 sentences>
+A: <response option reflecting one behavioural trait>
+B: <response option reflecting a different trait>
+C: <response option reflecting another trait>
+D: <response option reflecting another trait>
+
+Rules:
+- All four options must be plausible and positive — no obviously bad choices
+- Each option must reflect a distinct personality or work-style trait
+- Scenarios must be realistic professional situations
+- No option should be labelled as better than another"""
+
+        try:
+            url = f"{self.base_url}/api/generate"
+            response = requests.post(
+                url,
+                json={"model": model, "prompt": prompt, "stream": False, "temperature": 0.75},
+                timeout=180,
+            )
+            response.raise_for_status()
+            raw_questions = self._parse_mcq_response(response.json().get("response", ""), num_questions)
+            # Remove the 'correct' field — psychometric has no right answer
+            questions = [{k: v for k, v in q.items() if k != 'correct'} for q in raw_questions]
+            logger.info("Ollama [psychometric] done  host=%s  assessment=%s  count=%d",
+                        self._host_label(), assessment_name, len(questions))
+            return questions
+        except Exception as e:
+            logger.error("Ollama [psychometric] failed  host=%s  error=%s", self._host_label(), e)
             return []
 
     def _parse_mcq_response(self, text: str, num_questions: int) -> List[Dict[str, Any]]:
@@ -220,7 +300,7 @@ Rules:
     def _resolve_model(self, assessment_type: str) -> Optional[str]:
         """Return the best available model for the given assessment type.
         Falls back to any installed model rather than failing."""
-        preferred = self.models.get(assessment_type, 'mistral')
+        preferred = self.models.get(assessment_type, 'llama3.2:3b')
         available = self.get_available_models()
         if not available:
             return None
@@ -392,13 +472,6 @@ Problems:"""
           questions – list of 3 open-ended QA question strings
         Returns {} on failure so build_sections falls back to hardcoded content.
         """
-        cache_key = f"voice_test_{assessment_name}"
-        if cache_key in self.cache:
-            cached_data, timestamp = self.cache[cache_key]
-            if datetime.now() - timestamp < timedelta(seconds=self.cache_ttl):
-                logger.info(f"Using cached voice test content for {assessment_name}")
-                return cached_data
-
         if not self.is_ollama_available():
             return {}
 
@@ -460,7 +533,6 @@ Generate fresh assessment content. Return ONLY valid JSON — no extra text, no 
             if not all(k in data for k in ('passages', 'sentences', 'topics', 'questions')):
                 logger.warning("Voice test content: missing required keys in Ollama response")
                 return {}
-            self.cache[cache_key] = (data, datetime.now())
             logger.info("Ollama [voice_test] done  host=%s  assessment=%s",
                         self._host_label(), assessment_name)
             return data
@@ -593,11 +665,18 @@ Generate fresh assessment content. Return ONLY valid JSON — no extra text, no 
     ) -> Dict[str, Any]:
         """
         Evaluate submitted assessment responses using Ollama.
-        Returns overall score, grade, summary, strengths, improvements, and per-response feedback.
+        For psychometric assessments: returns a behavioural trait profile (no score).
+        For all others: returns overall score, grade, summary, strengths, improvements.
         Falls back to rule-based scoring when Ollama is unavailable.
         """
         from datetime import datetime as _dt
         from utils_others.grading import GradeCalculator
+        from routers.assessment_formats import get_format_type
+        is_psychometric = get_format_type(assessment_key) == 'psychometric'
+
+        # Route psychometric to its own analysis path
+        if is_psychometric:
+            return self._analyze_psychometric(assessment_name, assessment_key, responses)
 
         # Build text for analysis (only scorable responses)
         scorable = []
@@ -622,7 +701,7 @@ Generate fresh assessment content. Return ONLY valid JSON — no extra text, no 
 
         if self.is_ollama_available() and (text_items or scorable):
             logger.info("Ollama [analysis] host=%s  assessment=%s", self._host_label(), assessment_name)
-            model = self._resolve_model('general')
+            model = self._resolve_model('analysis')
             if model:
                 try:
                     response_lines = []
@@ -718,6 +797,105 @@ Scoring: 90-100=Exceptional, 80-89=Excellent, 70-79=Very Good, 60-69=Good, 50-59
             "analyzed_at": _dt.utcnow().isoformat(),
             "analyzer": "ollama" if ollama_result else "fallback",
         }
+
+    def _analyze_psychometric(
+        self,
+        assessment_name: str,
+        assessment_key: str,
+        responses: List[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        """Analyse psychometric responses and return a behavioural trait profile.
+
+        No score is produced — the output describes personality and work-style traits
+        inferred from the pattern of option selections.
+        """
+        from datetime import datetime as _dt
+
+        # Collect which option (A/B/C/D) the user picked for each question
+        option_labels = ['A', 'B', 'C', 'D']
+        selections = []
+        for i, r in enumerate(responses):
+            idx = r.get('selected_option_idx')
+            if idx is not None and 0 <= idx < 4:
+                selections.append(f"Q{i + 1}: Option {option_labels[idx]}")
+
+        fallback = {
+            "overall_score": None,
+            "summary": "Your responses have been recorded. A detailed behavioural profile will be available once AI analysis completes.",
+            "strengths": ["Responses submitted successfully"],
+            "areas_for_improvement": [],
+            "trait_profile": {},
+            "response_feedback": [],
+            "analyzed_at": _dt.utcnow().isoformat(),
+            "analyzer": "fallback",
+            "is_psychometric": True,
+        }
+
+        if not selections:
+            return fallback
+
+        if not self.is_ollama_available():
+            return fallback
+
+        model = self._resolve_model('analysis')
+        if not model:
+            return fallback
+
+        logger.info("Ollama [psychometric-analysis] host=%s  assessment=%s", self._host_label(), assessment_name)
+
+        prompt = f"""You are an occupational psychologist analysing a psychometric assessment.
+
+Assessment: {assessment_name}
+The candidate answered {len(selections)} situational judgement questions. Each question had 4 options (A, B, C, D) reflecting different behavioural traits. Their selections were:
+
+{chr(10).join(selections)}
+
+Based on this pattern of responses, generate a behavioural trait profile. Return ONLY valid JSON with this exact structure (no extra text):
+{{
+  "summary": "<2-3 sentence narrative summary of the candidate's dominant work style and personality>",
+  "trait_profile": {{
+    "<Trait Name>": "<One sentence description of how this trait manifests in their responses>",
+    "<Trait Name>": "<One sentence description>",
+    "<Trait Name>": "<One sentence description>",
+    "<Trait Name>": "<One sentence description>"
+  }},
+  "strengths": ["<Behavioural strength 1>", "<Behavioural strength 2>", "<Behavioural strength 3>"],
+  "areas_for_development": ["<Development area 1>", "<Development area 2>"],
+  "work_style": "<One of: Collaborative, Directive, Analytical, Supportive, Entrepreneurial, or a blend>",
+  "recommended_environments": ["<Type of work environment that suits this profile>", "<Another environment>"]
+}}"""
+
+        try:
+            raw = requests.post(
+                f"{self.base_url}/api/generate",
+                json={"model": model, "prompt": prompt, "stream": False, "temperature": 0.5},
+                timeout=180,
+            )
+            raw.raise_for_status()
+            text_out = raw.json().get('response', '')
+            start = text_out.find('{')
+            end = text_out.rfind('}') + 1
+            if start == -1 or end <= start:
+                return fallback
+            result = json.loads(text_out[start:end])
+            logger.info("Ollama [psychometric-analysis] done  host=%s  assessment=%s",
+                        self._host_label(), assessment_name)
+            return {
+                "overall_score": None,
+                "summary": result.get("summary", ""),
+                "strengths": result.get("strengths", []),
+                "areas_for_improvement": result.get("areas_for_development", []),
+                "trait_profile": result.get("trait_profile", {}),
+                "work_style": result.get("work_style", ""),
+                "recommended_environments": result.get("recommended_environments", []),
+                "response_feedback": [],
+                "analyzed_at": _dt.utcnow().isoformat(),
+                "analyzer": "ollama",
+                "is_psychometric": True,
+            }
+        except Exception as e:
+            logger.error("Ollama [psychometric-analysis] failed  host=%s  error=%s", self._host_label(), e)
+            return fallback
 
     def generate_interview_questions(self, resume_text: str, num_questions: int = 3) -> Optional[List[str]]:
         """Generate personalised interview questions from a candidate's resume text.
