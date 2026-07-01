@@ -29,7 +29,22 @@ class OllamaService:
     """Service for generating assessment questions using Ollama"""
 
     def __init__(self, base_url: str = None):
-        self.base_url = base_url or os.getenv("ollama_base_url", "https://ollama.skreenit.com")
+        if base_url:
+            self.endpoints = [base_url]
+        else:
+            self.endpoints = [
+                url for url in (
+                    os.getenv("OLLAMA_MAC_URL"),
+                    os.getenv("OLLAMA_WINDOWS_URL"),
+                    os.getenv("ollama_base_url"),
+                ) if url
+            ] or ["https://ollama.skreenit.com"]
+
+        self.base_url = self.endpoints[0]
+        self._active_url: Optional[str] = None
+        self._active_checked_at: Optional[datetime] = None
+        self._active_ttl = 30  # seconds to trust a known-good endpoint before re-checking
+
         self.models = {
             'general': 'mistral',
             'technical': 'codellama',
@@ -38,21 +53,43 @@ class OllamaService:
         self.cache = {}
         self.cache_ttl = 3600
 
+    def _resolve_base_url(self) -> Optional[str]:
+        """Return a reachable Ollama base URL, trying endpoints in order (e.g. Mac first, then Windows).
+
+        Sticks with the last known-good endpoint for `_active_ttl` seconds to avoid
+        a health-check round trip before every call; re-probes the full list once that expires
+        or the cached endpoint stops responding.
+        """
+        now = datetime.now()
+        if (
+            self._active_url
+            and self._active_checked_at
+            and now - self._active_checked_at < timedelta(seconds=self._active_ttl)
+        ):
+            return self._active_url
+
+        for url in self.endpoints:
+            try:
+                response = requests.get(f"{url}/api/tags", timeout=5)
+                if response.status_code != 200:
+                    continue
+                if not response.json().get("models"):
+                    logger.warning("Ollama at %s is running but no models are loaded", url)
+                    continue
+                self._active_url = url
+                self._active_checked_at = now
+                self.base_url = url
+                return url
+            except Exception:
+                logger.warning("Ollama not reachable at %s", url)
+
+        self._active_url = None
+        self._active_checked_at = None
+        return None
+
     def is_ollama_available(self) -> bool:
-        """Check if Ollama server is running AND has at least one model loaded."""
-        try:
-            response = requests.get(f"{self.base_url}/api/tags", timeout=10)
-            if response.status_code != 200:
-                return False
-            data = response.json()
-            models = data.get("models", [])
-            if not models:
-                logger.warning("Ollama is running but no models are loaded")
-                return False
-            return True
-        except Exception:
-            logger.warning("Ollama server not available at %s", self.base_url)
-            return False
+        """Check if any configured Ollama endpoint is running AND has at least one model loaded."""
+        return self._resolve_base_url() is not None
 
     def generate_questions(
         self,
@@ -272,9 +309,12 @@ Questions:"""
         return questions[:num_questions]
 
     def get_available_models(self) -> List[str]:
-        """Get list of available models from Ollama"""
+        """Get list of available models from the active Ollama endpoint"""
+        url = self._resolve_base_url()
+        if not url:
+            return []
         try:
-            response = requests.get(f"{self.base_url}/api/tags", timeout=5)
+            response = requests.get(f"{url}/api/tags", timeout=5)
             if response.status_code == 200:
                 data = response.json()
                 models = [m['name'] for m in data.get('models', [])]
