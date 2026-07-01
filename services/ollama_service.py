@@ -26,10 +26,20 @@ class TaskType(Enum):
 
 
 class OllamaService:
-    """Service for generating assessment questions using Ollama"""
+    """Service for generating assessment questions using Ollama.
+
+    Tries each URL in `candidate_urls` in order and uses the first one that
+    responds with at least one loaded model. Mac is checked first; Windows is
+    the fallback. Configure via env vars:
+      OLLAMA_URL_PRIMARY   – Mac/primary host   (default: https://ollama.skreenit.com)
+      OLLAMA_URL_FALLBACK  – Windows/secondary  (default: unset / skipped)
+    """
 
     def __init__(self, base_url: str = None):
-        self.base_url = base_url or os.getenv("ollama_base_url", "https://ollama.skreenit.com")
+        primary  = base_url or os.getenv("OLLAMA_URL_PRIMARY") or os.getenv("ollama_base_url", "")
+        fallback = os.getenv("OLLAMA_URL_FALLBACK", "")
+        self._candidate_urls: list = [u.rstrip("/") for u in [primary, fallback] if u]
+        self.base_url = self._candidate_urls[0]  # resolved lazily by _resolve_active_url()
         self.models = {
             'general': 'mistral',
             'technical': 'codellama',
@@ -38,21 +48,30 @@ class OllamaService:
         self.cache = {}
         self.cache_ttl = 3600
 
+    def _resolve_active_url(self) -> Optional[str]:
+        """Return the first candidate URL that has Ollama running with a loaded model.
+
+        Updates self.base_url so every subsequent call in the same request uses
+        the same host without repeating the probe.
+        """
+        for url in self._candidate_urls:
+            try:
+                resp = requests.get(f"{url}/api/tags", timeout=5)
+                if resp.status_code == 200 and resp.json().get("models"):
+                    if url != self.base_url:
+                        logger.info("Ollama: switched to %s", url)
+                        self.base_url = url
+                    return url
+            except Exception:
+                logger.warning("Ollama not reachable at %s, trying next", url)
+        return None
+
     def is_ollama_available(self) -> bool:
-        """Check if Ollama server is running AND has at least one model loaded."""
-        try:
-            response = requests.get(f"{self.base_url}/api/tags", timeout=10)
-            if response.status_code != 200:
-                return False
-            data = response.json()
-            models = data.get("models", [])
-            if not models:
-                logger.warning("Ollama is running but no models are loaded")
-                return False
-            return True
-        except Exception:
-            logger.warning("Ollama server not available at %s", self.base_url)
-            return False
+        """Check if any Ollama host is running with at least one model loaded."""
+        available = self._resolve_active_url() is not None
+        if not available:
+            logger.warning("Ollama not available at any configured URL: %s", self._candidate_urls)
+        return available
 
     def generate_questions(
         self,
