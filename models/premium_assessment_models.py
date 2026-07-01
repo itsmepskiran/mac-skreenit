@@ -38,3 +38,4 @@ class AssessmentFinishRequest(BaseModel):
     mode: str
     responses: List[ExerciseResponse]
     timeTakenSeconds: Optional[int] = None
+    mcqToken: Optional[str] = None   # opaque token returned by assessment-questions; used for MCQ grading

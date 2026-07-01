@@ -9,6 +9,8 @@ from typing import Optional
 import logging
 import json
 import uuid
+import time
+import threading
 
 from database import get_db
 from sqlalchemy.orm import Session
@@ -29,6 +31,39 @@ logger = logging.getLogger(__name__)
 mysql_service = MySQLService()
 ollama_service = OllamaService()
 router = APIRouter(prefix="/premium", tags=["Premium Assessments"])
+
+# ── In-memory MCQ answer key store ────────────────────────────────────────────
+_MCQ_KEY_STORE: dict = {}
+_MCQ_LOCK = threading.Lock()
+_MCQ_TTL = 3600  # 1 hour
+
+
+def _store_mcq_keys(questions: list) -> str:
+    token = str(uuid.uuid4())
+    keys: dict = {"_exp": time.monotonic() + _MCQ_TTL}
+    for q in questions:
+        qid = q.get("id")
+        correct = q.get("correct")
+        if qid is not None and correct is not None:
+            keys[str(qid)] = int(correct)
+    now = time.monotonic()
+    with _MCQ_LOCK:
+        _MCQ_KEY_STORE[token] = keys
+        # Evict expired entries while we have the lock
+        expired = [k for k, v in _MCQ_KEY_STORE.items() if v.get("_exp", 0) < now]
+        for k in expired:
+            del _MCQ_KEY_STORE[k]
+    return token
+
+
+def _get_mcq_keys(token: Optional[str]) -> dict:
+    if not token:
+        return {}
+    with _MCQ_LOCK:
+        data = _MCQ_KEY_STORE.get(token, {})
+        if not data or data.get("_exp", 0) < time.monotonic():
+            return {}
+        return {k: v for k, v in data.items() if k != "_exp"}
 
 # Assessment keys that are free for all authenticated users (service_type = 'general_plan')
 FREE_ASSESSMENT_KEYS: set = {
@@ -660,6 +695,7 @@ async def get_assessment_questions(
         # Always attempt Ollama first — hardcoded content is the fallback when Ollama is unavailable
         ollama_questions = []
         ollama_mcq = []
+        ollama_voice_content = {}
         if ollama_service.is_ollama_available():
             try:
                 if format_type == 'mcq':
@@ -670,10 +706,15 @@ async def get_assessment_questions(
                         num_questions=metadata.get('questions', 5),
                     )
                 elif format_type == 'coding_test' and platform:
-                    # Use specialized coding challenge generator for platform-specific problems
                     ollama_questions = ollama_service.generate_coding_challenge_questions(
                         platform=platform,
                         num_questions=metadata.get('questions', 3),
+                    )
+                elif format_type == 'voice_test':
+                    ollama_voice_content = ollama_service.generate_voice_test_content(
+                        assessment_name=metadata['name'],
+                        assessment_desc=metadata['description'],
+                        skills=skills_str,
                     )
                 else:
                     ollama_questions = ollama_service.generate_questions(
@@ -686,12 +727,22 @@ async def get_assessment_questions(
             except Exception as e:
                 logger.warning(f"Ollama generation failed: {str(e)}")
 
+        # Store MCQ answer keys and issue a token so finish_assessment can grade correctly
+        mcq_token = None
+        effective_mcq = ollama_mcq or []
+        if not effective_mcq:
+            from routers.assessment_formats import MCQ_FALLBACK
+            effective_mcq = MCQ_FALLBACK.get(assessment_key, [])
+        if effective_mcq:
+            mcq_token = _store_mcq_keys(effective_mcq)
+
         sections = build_sections(
             assessment_key, metadata,
             ollama_questions=ollama_questions or None,
             format_override=format_type,
             ollama_mcq=ollama_mcq or None,
             platform=platform,
+            ollama_voice_content=ollama_voice_content or None,
         )
         total_duration = sum(
             s.get('duration_per_item', 60) * len(s.get('items', []))
@@ -708,6 +759,7 @@ async def get_assessment_questions(
                 "format_description": get_format_description(format_type),
                 "sections": sections,
                 "total_duration": total_duration,
+                "mcq_token": mcq_token,
             }
         }
 
@@ -794,30 +846,32 @@ async def finish_assessment(
         mcq_correct = 0
         mcq_total = 0
 
+        # Resolve MCQ answer keys from token first, then fallback dict
+        mcq_keys = _get_mcq_keys(finish_data.mcqToken)
+        if not mcq_keys:
+            try:
+                from routers.assessment_formats import MCQ_FALLBACK
+                fallback_items = MCQ_FALLBACK.get(assessment_key, [])
+                mcq_keys = {q['id']: q['correct'] for q in fallback_items if 'id' in q and 'correct' in q}
+            except Exception:
+                mcq_keys = {}
+
         # Collect per-row data; parse questionId = "{sectionId}_{itemId}"
+        # questionId format: "s_mcq_q1" → section_id="s_mcq", item_id="q1"
         response_rows = []
         for r in finish_data.responses:
-            # Split sectionId_itemId — only on first underscore group that makes sense
-            parts = r.questionId.split('_', 1)
-            section_id = parts[0] if len(parts) == 2 else r.questionId
-            item_id    = parts[1] if len(parts) == 2 else None
+            last_under = r.questionId.rfind('_')
+            section_id = r.questionId[:last_under] if last_under != -1 else r.questionId
+            item_id    = r.questionId[last_under + 1:] if last_under != -1 else None
 
             is_correct = None
-            if r.type == 'mcq' and r.selectedIdx is not None:
+            if r.type == 'mcq' and r.selectedIdx is not None and item_id:
                 mcq_total += 1
-                # Look up correct answer in MCQ_FALLBACK
-                # (imported from assessment_formats if available)
-                try:
-                    from routers.assessment_formats import MCQ_FALLBACK
-                    items = MCQ_FALLBACK.get(assessment_key, [])
-                    # Match by item_id
-                    match = next((q for q in items if q.get('id') == item_id), None)
-                    if match and match.get('correct') is not None:
-                        is_correct = 1 if r.selectedIdx == match['correct'] else 0
-                        if is_correct:
-                            mcq_correct += 1
-                except Exception:
-                    pass
+                correct_idx = mcq_keys.get(item_id)
+                if correct_idx is not None:
+                    is_correct = 1 if r.selectedIdx == correct_idx else 0
+                    if is_correct:
+                        mcq_correct += 1
 
             response_rows.append({
                 'id':                 str(uuid.uuid4()),

@@ -337,6 +337,95 @@ Problems:"""
             logger.error(f"Coding challenge generation failed for {platform}: {str(e)}")
             return []
 
+    def generate_voice_test_content(
+        self,
+        assessment_name: str,
+        assessment_desc: str,
+        skills: str,
+    ) -> Dict[str, Any]:
+        """Generate all dynamic content for a voice_test assessment in one call.
+
+        Returns a dict with keys:
+          passages  – list of 2 reading passage strings
+          sentences – list of 6 repeat-sentence strings
+          topics    – list of 4 topic-speaking strings
+          questions – list of 3 open-ended QA question strings
+        Returns {} on failure so build_sections falls back to hardcoded content.
+        """
+        cache_key = f"voice_test_{assessment_name}"
+        if cache_key in self.cache:
+            cached_data, timestamp = self.cache[cache_key]
+            if datetime.now() - timestamp < timedelta(seconds=self.cache_ttl):
+                logger.info(f"Using cached voice test content for {assessment_name}")
+                return cached_data
+
+        if not self.is_ollama_available():
+            return {}
+
+        model = self._resolve_model('general')
+        if not model:
+            return {}
+
+        prompt = f"""You are designing a spoken English assessment for the following role/context.
+
+Assessment: {assessment_name}
+Description: {assessment_desc}
+Skills: {skills}
+
+Generate fresh assessment content. Return ONLY valid JSON — no extra text, no markdown, no explanations.
+
+{{
+  "passages": [
+    "<A professional reading passage of 2-4 sentences directly relevant to {assessment_name}. Use formal English.>",
+    "<A second passage on a different angle of the same context, 2-4 sentences.>"
+  ],
+  "sentences": [
+    "<One clear 8-15 word sentence relevant to {assessment_name} for repetition practice.>",
+    "<Another sentence, different topic within the same context.>",
+    "<Third sentence.>",
+    "<Fourth sentence.>",
+    "<Fifth sentence.>",
+    "<Sixth sentence.>"
+  ],
+  "topics": [
+    "<One speaking topic closely related to {assessment_name} — a phrase, not a question.>",
+    "<Second topic.>",
+    "<Third topic.>",
+    "<Fourth topic.>"
+  ],
+  "questions": [
+    "<Open-ended question answerable in 45-60 seconds, testing {skills}.>",
+    "<Second question, different skill area.>",
+    "<Third question.>"
+  ]
+}}"""
+
+        try:
+            url = f"{self.base_url}/api/generate"
+            response = requests.post(
+                url,
+                json={"model": model, "prompt": prompt, "stream": False, "temperature": 0.55},
+                timeout=180,
+            )
+            response.raise_for_status()
+            raw = response.json().get("response", "")
+            start = raw.find('{')
+            end = raw.rfind('}') + 1
+            if start == -1 or end <= start:
+                logger.warning("Voice test content: no JSON found in Ollama response")
+                return {}
+            data = json.loads(raw[start:end])
+            # Validate minimum keys
+            if not all(k in data for k in ('passages', 'sentences', 'topics', 'questions')):
+                logger.warning("Voice test content: missing required keys in Ollama response")
+                return {}
+            self.cache[cache_key] = (data, datetime.now())
+            logger.info(f"Generated voice test content for {assessment_name}")
+            return data
+        except Exception as e:
+            logger.error(f"Voice test content generation failed: {e}")
+            return {}
+
     def generate_typing_paragraph(self, duration_minutes: int) -> str:
         """Generate a long prose passage sized for a typing speed test of given duration."""
         duration_minutes = max(1, min(10, duration_minutes))

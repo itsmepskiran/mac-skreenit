@@ -723,16 +723,25 @@ PLATFORM_STARTER_TEMPLATES: Dict[str, str] = {
 
 def build_sections(assessment_key: str, metadata: dict, ollama_questions: list = None,
                    format_override: str = None, content_override: list = None,
-                   ollama_mcq: list = None, platform: str = None) -> list:
+                   ollama_mcq: list = None, platform: str = None,
+                   ollama_voice_content: dict = None) -> list:
     fmt = format_override or get_format_type(assessment_key)
 
     if fmt == 'voice_test':
         raw = VOICE_TEST_FORMATS.get(assessment_key, [])
+        vc = ollama_voice_content or {}
         sections = []
         for s in raw:
             sec = dict(s)
+            etype = sec.get('exercise_type')
             if sec.get('items') == '__OLLAMA__':
-                if ollama_questions:
+                # qa_verbal: use Ollama questions or fallback
+                if vc.get('questions'):
+                    sec['items'] = [
+                        {'id': f'q{i}', 'content': q}
+                        for i, q in enumerate(vc['questions'], 1)
+                    ]
+                elif ollama_questions:
                     sec['items'] = [
                         {'id': f'q{i}', 'content': q.get('question', q.get('content', str(q)))}
                         for i, q in enumerate(ollama_questions, 1)
@@ -743,6 +752,21 @@ def build_sections(assessment_key: str, metadata: dict, ollama_questions: list =
                         {'id': 'q2', 'content': 'What are the most important skills for this role and how do you demonstrate them?'},
                         {'id': 'q3', 'content': 'Give an example of when clear communication made a significant difference in your work.'},
                     ]
+            elif etype == 'read_aloud' and vc.get('passages'):
+                sec['items'] = [
+                    {'id': f'p{i}', 'content': p}
+                    for i, p in enumerate(vc['passages'], 1)
+                ]
+            elif etype == 'repeat_sentence' and vc.get('sentences'):
+                sec['items'] = [
+                    {'id': f'r{i}', 'content': sent}
+                    for i, sent in enumerate(vc['sentences'], 1)
+                ]
+            elif etype == 'topic_speaking' and vc.get('topics'):
+                sec['items'] = [
+                    {'id': f't{i}', 'content': topic}
+                    for i, topic in enumerate(vc['topics'], 1)
+                ]
             sections.append(sec)
         return sections
 
